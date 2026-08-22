@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "basket_proposal.json",
+  "title": "DiscoveryResponse",
+  "type": "object",
+  "required": ["basket_proposal", "estimated_total", "currency", "unmatched"],
+  "properties": {
+    "basket_proposal": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["product_id", "pack_id", "name", "matched_for", "quantity", "price", "size", "unit"],
+        "properties": {
+          "product_id": {"type": "string"},
+          "pack_id": {"type": "string"},
+          "name": {"type": "string"},
+          "matched_for": {"type": "string", "description": "The intent keyword this item satisfies"},
+          "match_reasons": {"type": "array", "items": {"type": "string"}},
+          "quantity": {"type": "integer", "minimum": 1},
+          "price": {"type": "integer"},
+          "size": {"type": "number"},
+          "unit": {"enum": ["ml", "l", "g", "kg", "pcs"]},
+          "available_stock": {"type": "integer"}
+        }
+      }
+    },
+    "estimated_total": {"type": "integer"},
+    "currency": {"const": "INR"},
+    "unmatched": {"type": "array", "items": {"type": "string"}},
+    "parser": {"enum": ["llm", "keyword-fallback"]}
+  }
+}

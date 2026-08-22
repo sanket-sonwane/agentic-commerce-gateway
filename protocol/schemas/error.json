@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "error.json",
+  "title": "ProtocolErrorEnvelope",
+  "type": "object",
+  "required": ["error"],
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "details"],
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_REQUEST", "UNAUTHORIZED_AGENT", "DELEGATION_EXPIRED",
+            "DELEGATION_SCOPE_VIOLATION", "PRODUCT_NOT_FOUND", "PACK_NOT_FOUND",
+            "STOCK_UNAVAILABLE", "CATEGORY_BLOCKED", "SPEND_LIMIT_EXCEEDED",
+            "CHECKOUT_NOT_FOUND", "INVALID_STATE_TRANSITION", "SESSION_EXPIRED",
+            "PRICE_CHANGED", "CONFIRMATION_STALE", "PAYMENT_FAILED", "PAYMENT_PENDING"
+          ]
+        },
+        "message": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "details": {"type": "object"}
+      }
+    },
+    "checkout_session": {
+      "type": "object",
+      "description": "Present when a session exists for the failed operation",
+      "required": ["checkout_session_id", "status"],
+      "properties": {
+        "checkout_session_id": {"type": "string"},
+        "status": {"$ref": "#/definitions/sessionStatus"}
+      }
+    }
+  },
+  "definitions": {
+    "sessionStatus": {
+      "enum": ["created", "requires_payment", "requires_confirmation", "payment_pending", "completed", "declined", "cancelled"]
+    }
+  }
+}

@@ -1,0 +1,528 @@
+{
+  "products": [
+    {
+      "product_id": "prod_milk_amul",
+      "name": "Amul Toned Milk",
+      "category": "dairy",
+      "brand": "Amul",
+      "description": "Pasteurized toned milk pouch",
+      "tags": ["milk", "dairy", "daily-essential", "toned-milk"],
+      "packs": [
+        {"pack_id": "pack_milk_amul_500", "size": 500, "unit": "ml", "price": 32, "stock": 60},
+        {"pack_id": "pack_milk_amul_1l", "size": 1, "unit": "l", "price": 60, "stock": 40}
+      ]
+    },
+    {
+      "product_id": "prod_milk_mother_dairy",
+      "name": "Mother Dairy Toned Milk",
+      "category": "dairy",
+      "brand": "Mother Dairy",
+      "description": "Toned milk pouch, alternative to Amul",
+      "tags": ["milk", "dairy", "daily-essential", "toned-milk"],
+      "packs": [
+        {"pack_id": "pack_milk_md_500", "size": 500, "unit": "ml", "price": 30, "stock": 25},
+        {"pack_id": "pack_milk_md_1l", "size": 1, "unit": "l", "price": 58, "stock": 30}
+      ]
+    },
+    {
+      "product_id": "prod_paneer_amul",
+      "name": "Amul Fresh Paneer",
+      "category": "dairy",
+      "brand": "Amul",
+      "description": "Fresh cottage cheese blocks",
+      "tags": ["paneer", "cottage-cheese", "protein", "cheese"],
+      "packs": [
+        {"pack_id": "pack_paneer_200", "size": 200, "unit": "g", "price": 95, "stock": 20},
+        {"pack_id": "pack_paneer_400", "size": 400, "unit": "g", "price": 185, "stock": 12}
+      ]
+    },
+    {
+      "product_id": "prod_tofu_epigamia",
+      "name": "Epigamia Organic Tofu",
+      "category": "dairy",
+      "brand": "Epigamia",
+      "description": "Plant protein, paneer substitute",
+      "tags": ["tofu", "protein", "vegan", "paneer-substitute"],
+      "packs": [
+        {"pack_id": "pack_tofu_200", "size": 200, "unit": "g", "price": 120, "stock": 14}
+      ]
+    },
+    {
+      "product_id": "prod_curd_amul",
+      "name": "Amul Dahi",
+      "category": "dairy",
+      "brand": "Amul",
+      "description": "Fresh set curd / yogurt",
+      "tags": ["curd", "yogurt", "dahi", "dairy"],
+      "packs": [
+        {"pack_id": "pack_curd_400", "size": 400, "unit": "g", "price": 35, "stock": 30},
+        {"pack_id": "pack_curd_1kg", "size": 1, "unit": "kg", "price": 70, "stock": 15}
+      ]
+    },
+    {
+      "product_id": "prod_butter_amul",
+      "name": "Amul Butter",
+      "category": "dairy",
+      "brand": "Amul",
+      "description": "Salted table butter",
+      "tags": ["butter", "dairy"],
+      "packs": [
+        {"pack_id": "pack_butter_100", "size": 100, "unit": "g", "price": 58, "stock": 40},
+        {"pack_id": "pack_butter_500", "size": 500, "unit": "g", "price": 265, "stock": 20}
+      ]
+    },
+    {
+      "product_id": "prod_cheese_amul",
+      "name": "Amul Cheese Slices",
+      "category": "dairy",
+      "brand": "Amul",
+      "description": "Processed cheese slices",
+      "tags": ["cheese", "slices", "dairy"],
+      "packs": [
+        {"pack_id": "pack_cheese_200", "size": 200, "unit": "g", "price": 135, "stock": 25},
+        {"pack_id": "pack_cheese_750", "size": 750, "unit": "g", "price": 465, "stock": 10}
+      ]
+    },
+    {
+      "product_id": "prod_ghee_amul",
+      "name": "Amul Pure Ghee",
+      "category": "dairy",
+      "brand": "Amul",
+      "description": "Clarified butter for cooking",
+      "tags": ["ghee", "cooking", "dairy"],
+      "packs": [
+        {"pack_id": "pack_ghee_500", "size": 500, "unit": "ml", "price": 315, "stock": 18},
+        {"pack_id": "pack_ghee_1l", "size": 1, "unit": "l", "price": 625, "stock": 8}
+      ]
+    },
+    {
+      "product_id": "prod_onion_local",
+      "name": "Fresh Onion",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Nashik onions, loose",
+      "tags": ["onion", "pyaz", "vegetable", "produce"],
+      "packs": [
+        {"pack_id": "pack_onion_500", "size": 500, "unit": "g", "price": 22, "stock": 100},
+        {"pack_id": "pack_onion_1kg", "size": 1, "unit": "kg", "price": 40, "stock": 80}
+      ]
+    },
+    {
+      "product_id": "prod_tomato_local",
+      "name": "Fresh Tomato",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Hybrid tomatoes",
+      "tags": ["tomato", "tamatar", "vegetable", "produce"],
+      "packs": [
+        {"pack_id": "pack_tomato_500", "size": 500, "unit": "g", "price": 25, "stock": 90},
+        {"pack_id": "pack_tomato_1kg", "size": 1, "unit": "kg", "price": 48, "stock": 70}
+      ]
+    },
+    {
+      "product_id": "prod_potato_local",
+      "name": "Fresh Potato",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Agra potatoes",
+      "tags": ["potato", "aloo", "vegetable", "produce"],
+      "packs": [
+        {"pack_id": "pack_potato_1kg", "size": 1, "unit": "kg", "price": 32, "stock": 100},
+        {"pack_id": "pack_potato_2kg", "size": 2, "unit": "kg", "price": 60, "stock": 60}
+      ]
+    },
+    {
+      "product_id": "prod_ginger_local",
+      "name": "Fresh Ginger",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Ginger root",
+      "tags": ["ginger", "adrak", "vegetable", "produce"],
+      "packs": [
+        {"pack_id": "pack_ginger_100", "size": 100, "unit": "g", "price": 15, "stock": 50},
+        {"pack_id": "pack_ginger_250", "size": 250, "unit": "g", "price": 34, "stock": 40}
+      ]
+    },
+    {
+      "product_id": "prod_garlic_local",
+      "name": "Fresh Garlic",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Garlic bulbs",
+      "tags": ["garlic", "lahsun", "vegetable", "produce"],
+      "packs": [
+        {"pack_id": "pack_garlic_100", "size": 100, "unit": "g", "price": 18, "stock": 45},
+        {"pack_id": "pack_garlic_250", "size": 250, "unit": "g", "price": 42, "stock": 35}
+      ]
+    },
+    {
+      "product_id": "prod_green_chilli",
+      "name": "Green Chilli",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Fresh green chillies",
+      "tags": ["chilli", "mirchi", "spice", "produce"],
+      "packs": [
+        {"pack_id": "pack_chilli_100", "size": 100, "unit": "g", "price": 12, "stock": 55},
+        {"pack_id": "pack_chilli_250", "size": 250, "unit": "g", "price": 28, "stock": 40}
+      ]
+    },
+    {
+      "product_id": "prod_coriander",
+      "name": "Fresh Coriander Leaves",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Coriander bunches",
+      "tags": ["coriander", "dhania", "herb", "produce"],
+      "packs": [
+        {"pack_id": "pack_coriander_100", "size": 100, "unit": "g", "price": 10, "stock": 60},
+        {"pack_id": "pack_coriander_250", "size": 250, "unit": "g", "price": 24, "stock": 45}
+      ]
+    },
+    {
+      "product_id": "prod_mint",
+      "name": "Fresh Mint Leaves",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Pudina bunches",
+      "tags": ["mint", "pudina", "herb", "produce"],
+      "packs": [
+        {"pack_id": "pack_mint_100", "size": 100, "unit": "g", "price": 12, "stock": 40},
+        {"pack_id": "pack_mint_250", "size": 250, "unit": "g", "price": 26, "stock": 30}
+      ]
+    },
+    {
+      "product_id": "prod_lemon",
+      "name": "Lemon",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Juicy lemons",
+      "tags": ["lemon", "nimbu", "produce"],
+      "packs": [
+        {"pack_id": "pack_lemon_500", "size": 500, "unit": "g", "price": 28, "stock": 50},
+        {"pack_id": "pack_lemon_1kg", "size": 1, "unit": "kg", "price": 52, "stock": 35}
+      ]
+    },
+    {
+      "product_id": "prod_capsicum",
+      "name": "Capsicum (Green)",
+      "category": "produce",
+      "brand": "Farm Fresh",
+      "description": "Bell peppers",
+      "tags": ["capsicum", "shimla-mirch", "bell-pepper", "vegetable", "produce"],
+      "packs": [
+        {"pack_id": "pack_capsicum_500", "size": 500, "unit": "g", "price": 30, "stock": 40},
+        {"pack_id": "pack_capsicum_1kg", "size": 1, "unit": "kg", "price": 56, "stock": 30}
+      ]
+    },
+    {
+      "product_id": "prod_rice_india_gate",
+      "name": "India Gate Basmati Rice",
+      "category": "staples",
+      "brand": "India Gate",
+      "description": "Premium long-grain basmati",
+      "tags": ["rice", "basmati", "chawal", "staple"],
+      "packs": [
+        {"pack_id": "pack_rice_ig_1kg", "size": 1, "unit": "kg", "price": 180, "stock": 45},
+        {"pack_id": "pack_rice_ig_5kg", "size": 5, "unit": "kg", "price": 850, "stock": 12}
+      ]
+    },
+    {
+      "product_id": "prod_rice_daawat",
+      "name": "Daawat Rozana Rice",
+      "category": "staples",
+      "brand": "Daawat",
+      "description": "Everyday rice, budget alternative to basmati",
+      "tags": ["rice", "chawal", "staple", "budget"],
+      "packs": [
+        {"pack_id": "pack_rice_daawat_1kg", "size": 1, "unit": "kg", "price": 95, "stock": 50},
+        {"pack_id": "pack_rice_daawat_5kg", "size": 5, "unit": "kg", "price": 460, "stock": 15}
+      ]
+    },
+    {
+      "product_id": "prod_atra_aashirvaad",
+      "name": "Aashirvaad Whole Wheat Atta",
+      "category": "staples",
+      "brand": "Aashirvaad",
+      "description": "Whole wheat flour",
+      "tags": ["atta", "flour", "wheat", "staple"],
+      "packs": [
+        {"pack_id": "pack_atta_5kg", "size": 5, "unit": "kg", "price": 245, "stock": 25},
+        {"pack_id": "pack_atta_10kg", "size": 10, "unit": "kg", "price": 480, "stock": 10}
+      ]
+    },
+    {
+      "product_id": "prod_oil_fortune",
+      "name": "Fortune Sunflower Oil",
+      "category": "staples",
+      "brand": "Fortune",
+      "description": "Refined sunflower oil",
+      "tags": ["oil", "sunflower-oil", "tel", "cooking", "staple"],
+      "packs": [
+        {"pack_id": "pack_oil_1l", "size": 1, "unit": "l", "price": 140, "stock": 40},
+        {"pack_id": "pack_oil_5l", "size": 5, "unit": "l", "price": 675, "stock": 10}
+      ]
+    },
+    {
+      "product_id": "prod_salt_tata",
+      "name": "Tata Salt",
+      "category": "staples",
+      "brand": "Tata",
+      "description": "Iodized salt",
+      "tags": ["salt", "namak", "staple"],
+      "packs": [
+        {"pack_id": "pack_salt_1kg", "size": 1, "unit": "kg", "price": 28, "stock": 80}
+      ]
+    },
+    {
+      "product_id": "prod_sugar_madhur",
+      "name": "Madhur Sugar",
+      "category": "staples",
+      "brand": "Madhur",
+      "description": "Refined sugar crystals",
+      "tags": ["sugar", "cheeni", "staple"],
+      "packs": [
+        {"pack_id": "pack_sugar_1kg", "size": 1, "unit": "kg", "price": 52, "stock": 60}
+      ]
+    },
+    {
+      "product_id": "prod_dal_toor",
+      "name": "Toor Dal (Arhar)",
+      "category": "staples",
+      "brand": "Tata Sampann",
+      "description": "Split pigeon peas",
+      "tags": ["dal", "toor-dal", "arhar-dal", "pulses", "protein", "staple"],
+      "packs": [
+        {"pack_id": "pack_toordal_500", "size": 500, "unit": "g", "price": 85, "stock": 50},
+        {"pack_id": "pack_toordal_1kg", "size": 1, "unit": "kg", "price": 165, "stock": 35}
+      ]
+    },
+    {
+      "product_id": "prod_masala_chicken_everest",
+      "name": "Everest Chicken Masala",
+      "category": "staples",
+      "brand": "Everest",
+      "description": "Spice mix for chicken dishes",
+      "tags": ["masala", "chicken-masala", "spice", "biryani"],
+      "packs": [
+        {"pack_id": "pack_chknmasala_100", "size": 100, "unit": "g", "price": 90, "stock": 35}
+      ]
+    },
+    {
+      "product_id": "prod_masala_garam_mdh",
+      "name": "MDH Garam Masala",
+      "category": "staples",
+      "brand": "MDH",
+      "description": "All-purpose garam masala",
+      "tags": ["masala", "garam-masala", "spice", "biryani"],
+      "packs": [
+        {"pack_id": "pack_garammasala_100", "size": 100, "unit": "g", "price": 85, "stock": 30}
+      ]
+    },
+    {
+      "product_id": "prod_bread_britannia",
+      "name": "Britannia Whole Wheat Bread",
+      "category": "bakery",
+      "brand": "Britannia",
+      "description": "Whole wheat sandwich bread",
+      "tags": ["bread", "paav", "bakery", "whole-wheat"],
+      "packs": [
+        {"pack_id": "pack_bread_britannia_400", "size": 400, "unit": "g", "price": 45, "stock": 35}
+      ]
+    },
+    {
+      "product_id": "prod_bread_massimo",
+      "name": "Massimo White Bread",
+      "category": "bakery",
+      "brand": "Massimo",
+      "description": "Soft white bread, budget alternative",
+      "tags": ["bread", "paav", "bakery", "white-bread", "budget"],
+      "packs": [
+        {"pack_id": "pack_bread_massimo_400", "size": 400, "unit": "g", "price": 38, "stock": 40}
+      ]
+    },
+    {
+      "product_id": "prod_bun_local",
+      "name": "Bakery Pav Buns",
+      "category": "bakery",
+      "brand": "Local Bakery",
+      "description": "Pack of 6 pav buns",
+      "tags": ["bun", "pav", "bakery"],
+      "packs": [
+        {"pack_id": "pack_bun_6pcs", "size": 6, "unit": "pcs", "price": 25, "stock": 45}
+      ]
+    },
+    {
+      "product_id": "prod_chicken_fresh",
+      "name": "Fresh Chicken Breast",
+      "category": "meat_eggs",
+      "brand": "Country Delight",
+      "description": "Boneless chicken breast, antibiotic-free",
+      "tags": ["chicken", "murgh", "meat", "protein", "boneless", "biryani"],
+      "packs": [
+        {"pack_id": "pack_chicken_500", "size": 500, "unit": "g", "price": 250, "stock": 1},
+        {"pack_id": "pack_chicken_1kg", "size": 1, "unit": "kg", "price": 480, "stock": 2}
+      ]
+    },
+    {
+      "product_id": "prod_chicken_curry_cut",
+      "name": "Chicken Curry Cut",
+      "category": "meat_eggs",
+      "brand": "Country Delight",
+      "description": "Skinless curry-cut chicken with bone",
+      "tags": ["chicken", "curry-cut", "meat", "protein", "biryani"],
+      "packs": [
+        {"pack_id": "pack_chickencurry_500", "size": 500, "unit": "g", "price": 145, "stock": 8},
+        {"pack_id": "pack_chickencurry_1kg", "size": 1, "unit": "kg", "price": 280, "stock": 5}
+      ]
+    },
+    {
+      "product_id": "prod_eggs_farm",
+      "name": "Farm Eggs",
+      "category": "meat_eggs",
+      "brand": "Eggoz",
+      "description": "Tray of fresh eggs",
+      "tags": ["eggs", "anda", "protein", "breakfast"],
+      "packs": [
+        {"pack_id": "pack_eggs_6", "size": 6, "unit": "pcs", "price": 45, "stock": 60},
+        {"pack_id": "pack_eggs_12", "size": 12, "unit": "pcs", "price": 90, "stock": 40}
+      ]
+    },
+    {
+      "product_id": "prod_mutton_fresh",
+      "name": "Fresh Mutton Curry Cut",
+      "category": "meat_eggs",
+      "brand": "Country Delight",
+      "description": "Goat meat curry cut",
+      "tags": ["mutton", "goat-meat", "meat", "protein", "premium"],
+      "packs": [
+        {"pack_id": "pack_mutton_500", "size": 500, "unit": "g", "price": 425, "stock": 6}
+      ]
+    },
+    {
+      "product_id": "prod_fish_rohu",
+      "name": "Rohu Fish (Cleaned)",
+      "category": "meat_eggs",
+      "brand": "Fisherman's Catch",
+      "description": "Freshwater fish, cut pieces",
+      "tags": ["fish", "rohu", "seafood", "protein"],
+      "packs": [
+        {"pack_id": "pack_rohu_500", "size": 500, "unit": "g", "price": 180, "stock": 7}
+      ]
+    },
+    {
+      "product_id": "prod_tea_tata",
+      "name": "Tata Tea Gold",
+      "category": "beverages",
+      "brand": "Tata Tea",
+      "description": "Premium Assam tea leaves",
+      "tags": ["tea", "chai", "beverage"],
+      "packs": [
+        {"pack_id": "pack_tea_250", "size": 250, "unit": "g", "price": 145, "stock": 40},
+        {"pack_id": "pack_tea_500", "size": 500, "unit": "g", "price": 275, "stock": 20}
+      ]
+    },
+    {
+      "product_id": "prod_coffee_nescafe",
+      "name": "Nescafe Classic Coffee",
+      "category": "beverages",
+      "brand": "Nescafe",
+      "description": "Instant coffee granules",
+      "tags": ["coffee", "beverage", "instant-coffee"],
+      "packs": [
+        {"pack_id": "pack_nescafe_50", "size": 50, "unit": "g", "price": 165, "stock": 30},
+        {"pack_id": "pack_nescafe_200", "size": 200, "unit": "g", "price": 560, "stock": 12}
+      ]
+    },
+    {
+      "product_id": "prod_juice_real",
+      "name": "Real Mixed Fruit Juice",
+      "category": "beverages",
+      "brand": "Real",
+      "description": "Mixed fruit juice carton",
+      "tags": ["juice", "beverage", "fruit-drink"],
+      "packs": [
+        {"pack_id": "pack_juice_1l", "size": 1, "unit": "l", "price": 110, "stock": 25}
+      ]
+    },
+    {
+      "product_id": "prod_water_bisleri",
+      "name": "Bisleri Water Bottle",
+      "category": "beverages",
+      "brand": "Bisleri",
+      "description": "Packaged drinking water",
+      "tags": ["water", "beverage", "mineral-water"],
+      "packs": [
+        {"pack_id": "pack_water_1l", "size": 1, "unit": "l", "price": 20, "stock": 100},
+        {"pack_id": "pack_water_2l", "size": 2, "unit": "l", "price": 32, "stock": 80}
+      ]
+    },
+    {
+      "product_id": "prod_biscuits_parle",
+      "name": "Parle-G Gold Biscuits",
+      "category": "snacks",
+      "brand": "Parle",
+      "description": "Glucose biscuits family pack",
+      "tags": ["biscuits", "parle-g", "snacks", "tea-time"],
+      "packs": [
+        {"pack_id": "pack_parleg_800", "size": 800, "unit": "g", "price": 85, "stock": 50}
+      ]
+    },
+    {
+      "product_id": "prod_chips_lays",
+      "name": "Lay's Classic Salted",
+      "category": "snacks",
+      "brand": "Lay's",
+      "description": "Potato chips",
+      "tags": ["chips", "lays", "snacks"],
+      "packs": [
+        {"pack_id": "pack_lays_90", "size": 90, "unit": "g", "price": 20, "stock": 70}
+      ]
+    },
+    {
+      "product_id": "prod_saffron_premium",
+      "name": "Kashmiri Saffron (Premium)",
+      "category": "staples",
+      "brand": "Saffron Fields",
+      "description": "Grade-A1 Pampore saffron strands",
+      "tags": ["saffron", "kesar", "premium", "spice", "luxury"],
+      "packs": [
+        {"pack_id": "pack_saffron_1g", "size": 1, "unit": "g", "price": 550, "stock": 10},
+        {"pack_id": "pack_saffron_5g", "size": 5, "unit": "g", "price": 2600, "stock": 4}
+      ]
+    },
+    {
+      "product_id": "prod_paansupari_rajnigandha",
+      "name": "Rajnigandha Silver Pearls",
+      "category": "tobacco",
+      "brand": "Rajnigandha",
+      "description": "Mouth freshener supari mix",
+      "tags": ["supari", "mouth-freshener", "tobacco-category"],
+      "packs": [
+        {"pack_id": "pack_supari_100", "size": 100, "unit": "g", "price": 55, "stock": 25}
+      ]
+    },
+    {
+      "product_id": "prod_surfmoment_wheel",
+      "name": "Wheel Detergent Powder",
+      "category": "household",
+      "brand": "Wheel",
+      "description": "Laundry detergent",
+      "tags": ["detergent", "laundry", "household", "cleaning"],
+      "packs": [
+        {"pack_id": "pack_wheel_1kg", "size": 1, "unit": "kg", "price": 112, "stock": 40}
+      ]
+    },
+    {
+      "product_id": "prod_vim_bar",
+      "name": "Vim Dishwash Bar",
+      "category": "household",
+      "brand": "Vim",
+      "description": "Lemon dishwash bar",
+      "tags": ["dishwash", "cleaning", "household"],
+      "packs": [
+        {"pack_id": "pack_vim_300", "size": 300, "unit": "g", "price": 30, "stock": 60}
+      ]
+    }
+  ]
+}

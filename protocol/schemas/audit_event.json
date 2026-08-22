@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "audit_event.json",
+  "title": "AuditEvent",
+  "type": "object",
+  "required": ["event_id", "actor", "action", "timestamp", "hash", "prev_hash"],
+  "properties": {
+    "seq": {"type": "integer"},
+    "event_id": {"type": "string", "pattern": "^evt_"},
+    "checkout_session_id": {"type": ["string", "null"]},
+    "actor": {"enum": ["buyer_agent", "merchant_agent", "operator", "razorpay"]},
+    "action": {"type": "string"},
+    "decision": {"enum": ["approved", "declined", "pending", "hold", "info", null]},
+    "rules_fired": {"type": "array", "items": {"type": "string"}},
+    "reasoning_summary": {"type": "string"},
+    "payload": {"type": "object"},
+    "prev_hash": {"type": "string"},
+    "hash": {
+      "type": "string",
+      "description": "SHA256(canonical_content + prev_hash) — append-only chain"
+    },
+    "timestamp": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Secrets — NEVER commit
+.env
+
+# Runtime data / logs
+data/
+*.log
+buyer_service_debug.log
+
+# Node
+dashboard/node_modules/
+dashboard/dist/

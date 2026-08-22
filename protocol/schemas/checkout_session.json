@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "checkout_session.json",
+  "title": "CheckoutSession",
+  "type": "object",
+  "required": ["checkout_session_id", "version", "status", "buyer_agent_id", "delegation_id", "line_items", "totals", "gating_result", "reservation"],
+  "properties": {
+    "checkout_session_id": {"type": "string", "pattern": "^cs_"},
+    "version": {"type": "integer", "minimum": 1},
+    "status": {
+      "type": "string",
+      "enum": ["created", "requires_payment", "requires_confirmation", "payment_pending", "completed", "declined", "cancelled"]
+    },
+    "buyer_agent_id": {"type": "string"},
+    "delegation_id": {"type": "string"},
+    "line_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["product_id", "pack_id", "quantity", "unit_price", "name"],
+        "properties": {
+          "product_id": {"type": "string"},
+          "pack_id": {"type": "string"},
+          "name": {"type": "string"},
+          "category": {"type": "string"},
+          "quantity": {"type": "integer", "minimum": 1},
+          "unit_price": {"type": "integer", "description": "Authoritative INR price per unit — merchant-resolved, never client-supplied"}
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": ["subtotal", "tax", "shipping", "total", "currency"],
+      "properties": {
+        "subtotal": {"type": "integer"},
+        "tax": {"type": "integer"},
+        "shipping": {"type": "integer"},
+        "total": {"type": "integer"},
+        "currency": {"const": "INR"}
+      }
+    },
+    "gating_result": {
+      "type": "object",
+      "required": ["passed", "checks"],
+      "properties": {
+        "passed": {"type": "boolean"},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rule", "result", "detail"],
+            "properties": {
+              "rule": {"enum": ["spend_limit", "stock_check", "category_allowed", "delegation_expiry", "quantity_limit"]},
+              "result": {"enum": ["pass", "fail", "skipped"]},
+              "detail": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "reservation": {
+      "type": "object",
+      "properties": {
+        "status": {"enum": ["active", "none"]},
+        "expires_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "change": {
+      "type": "object",
+      "description": "Present when terms changed and confirmation is required",
+      "properties": {
+        "type": {"const": "price_changed"},
+        "old_total": {"type": "integer"},
+        "new_total": {"type": "integer"}
+      }
+    },
+    "payment": {
+      "type": "object",
+      "properties": {
+        "driver": {"enum": ["sim", "checkout"]},
+        "order_id": {"type": "string"},
+        "payment_id": {"type": ["string", "null"]},
+        "amount": {"type": "integer"},
+        "currency": {"const": "INR"},
+        "awaiting_authorization": {"type": "boolean"}
+      }
+    },
+    "razorpay_order_id": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}
