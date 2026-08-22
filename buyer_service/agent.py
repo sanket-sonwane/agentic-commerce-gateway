@@ -1,29 +1,24 @@
 """The buyer agent brain: NIM tool-loop + deterministic approval gate.
 
-Cart-centric flow ownership:
-    LLM        -> intent, discovery, cart building, edits, asking to proceed
-    Service    -> textual consent gate, payment execution
+Flow ownership:
+    LLM        -> intent, discovery, basket construction, decline adaptation
+    Service    -> bill presentation, human approval pause, payment execution
     Merchant   -> validation, gating, money movement (always deterministic)
-
-Approval protocol: the LLM ends a message with [ASK_APPROVAL] to arm the
-deterministic consent classifier (buyer_service/consent.py). Only an explicit
-short affirmative from the human triggers money movement — never the LLM.
 """
 import json
-import re
 import uuid
 from collections.abc import Generator
 from typing import Any
 
 from buyer_service.config import settings
-from buyer_service.prompts import ASK_APPROVAL, SYSTEM_PROMPT, TOOL_SCHEMAS
+from buyer_service.prompts import SYSTEM_PROMPT, TOOL_SCHEMAS
 from buyer_service.tools import MerchantClient
+
+BILL_PAUSE = "__BILL_PAUSE__"
 
 # A candidate substitutes a declined item only if it serves the same role:
 # same category, or shares a dietary-role tag (protein etc.).
 ROLE_TAGS = {"protein"}
-
-_TOTAL_RE = re.compile(r"₹\s*([\d,]+)")
 
 
 def _client():
@@ -47,16 +42,7 @@ def _summarize_args(name: str, args: dict) -> str:
         return f"searching for “{args.get('query', '')}”"
     if name == "create_checkout_session":
         n = len(_coerce_items(args.get("items", [])))
-        return f"starting cart with {n} item(s)"
-    if name == "add_to_cart":
-        n = len(_coerce_items(args.get("items", [])))
-        return f"adding {n} item(s) to cart"
-    if name == "remove_from_cart":
-        ids = args.get("pack_ids")
-        ids = ids if isinstance(ids, list) else [ids]
-        return f"removing {len([i for i in ids if i])} item(s)"
-    if name == "set_quantity":
-        return f"setting {args.get('pack_id', '?')} ×{args.get('quantity', '?')}"
+        return f"creating checkout with {n} item(s)"
     if name == "cancel_checkout_session":
         return f"cancelling {args.get('checkout_session_id', '')}"
     return name
@@ -74,110 +60,11 @@ def _coerce_items(value) -> list:
     return value if isinstance(value, list) else []
 
 
-def _basket_map(items: list[dict]) -> dict[tuple[str, str], int]:
-    return {
-        (li["product_id"], li["pack_id"]): int(li["quantity"])
-        for li in items or []
-        if li.get("product_id") and li.get("pack_id")
-    }
-
-
-def _items_from_map(basket: dict[tuple[str, str], int]) -> list[dict]:
-    return [
-        {"product_id": p, "pack_id": k, "quantity": q}
-        for (p, k), q in basket.items()
-        if q > 0
-    ]
-
-
 class BuyerAgent:
     def __init__(self, merchant: MerchantClient | None = None) -> None:
         self.merchant = merchant or MerchantClient()
 
     # -------------------------------------------------- tool execution
-
-    def _session_out(self, session: dict) -> dict:
-        """Compact authoritative snapshot used for cart_updated events + LLM."""
-        return {
-            "checkout_session_id": session.get("checkout_session_id"),
-            "status": session.get("status"),
-            "version": session.get("version"),
-            "line_items": session.get("line_items", []),
-            "totals": session.get("totals", {}),
-        }
-
-    def _remember(self, conv, session: dict) -> None:
-        conv.active_session_id = session.get("checkout_session_id")
-        conv.last_basket_items = [dict(li) for li in session.get("line_items", [])]
-        conv.awaiting_payment_consent = False  # cart changed → ask again before charging
-
-    def _forget_cart(self, conv) -> None:
-        conv.active_session_id = None
-        conv.last_basket_items = []
-        conv.awaiting_payment_consent = False
-
-    def _cart_hint(self, conv) -> list[dict]:
-        """Exact cart snapshot handed back to the LLM so it can self-correct."""
-        return [
-            {"pack_id": li["pack_id"], "name": li["name"], "quantity": li["quantity"]}
-            for li in conv.last_basket_items or []
-        ]
-
-    def _resolve_in_cart(self, conv, refs) -> tuple[list[str], list[str]]:
-        """Resolve references to cart lines by exact pack_id OR name substring.
-        Deterministic — small models often mangle ids, names are robust."""
-        lines = conv.last_basket_items or []
-        by_pack = {str(li["pack_id"]).lower(): str(li["pack_id"]) for li in lines}
-        resolved: list[str] = []
-        missed: list[str] = []
-        for raw in refs or []:
-            r = str(raw).strip().lower()
-            if not r:
-                continue
-            if r in by_pack:
-                resolved.append(by_pack[r])
-                continue
-            hit = next(
-                (
-                    li["pack_id"]
-                    for li in lines
-                    if r in str(li["name"]).lower() or str(li["name"]).lower() in r
-                ),
-                None,
-            )
-            if hit:
-                resolved.append(hit)
-            else:
-                missed.append(str(raw))
-        return sorted(set(resolved)), missed
-
-    def _apply_edit(self, conv, new_items: list[dict]) -> dict[str, Any]:
-        """Replace the basket of the live session via PUT (server re-prices,
-        re-gates, swaps reservations atomically). On failure the merchant
-        preserves the previous basket; we mirror that locally."""
-        csid = conv.active_session_id
-        if not csid:
-            return {"updated": False, "code": "NO_ACTIVE_CART", "message": "There is no live cart yet."}
-        if conv.payment_in_flight:
-            return {
-                "updated": False,
-                "code": "PAYMENT_IN_PROGRESS",
-                "message": "Payment already started for this cart; it cannot be edited.",
-            }
-        status, payload = self.merchant.update_checkout(csid, new_items)
-        session = payload.get("checkout_session")
-        if status == 200 and session and session.get("status") == "requires_payment":
-            self._remember(conv, session)
-            return {"updated": True, "session": self._session_out(session)}
-        err = payload.get("error", {})
-        return {
-            "updated": False,
-            "code": err.get("code"),
-            "message": err.get("message", "the merchant rejected this change"),
-            "details": err.get("details", {}),
-            "cart_unchanged": True,
-            "current_cart": self._cart_hint(conv),
-        }
 
     def _execute_tool(self, conv, name: str, args: dict) -> dict[str, Any]:
         if name == "discover_products":
@@ -205,24 +92,15 @@ class BuyerAgent:
             blocked = set(conv.declined_packs)
             usable = [c for c in compact if c["pack_id"] not in blocked]
             dropped = len(compact) - len(usable)
-            payload_out: dict[str, Any] = {
+            payload_out = {
                 "candidates": usable,
                 "estimated_total": sum(c["price"] * c["quantity"] for c in usable),
                 "unmatched": payload.get("unmatched", []),
                 "instruction": (
                     "Build the basket ONLY from these candidates using their exact "
-                    "product_id/pack_id values."
+                    "product_id/pack_id values, then call create_checkout_session."
                 ),
             }
-            if conv.active_session_id and conv.last_basket_items:
-                payload_out["current_cart"] = [
-                    {"name": li["name"], "pack_id": li["pack_id"], "quantity": li["quantity"]}
-                    for li in conv.last_basket_items
-                ]
-                payload_out["instruction"] += (
-                    " A cart is ALREADY live — modify it with add_to_cart / "
-                    "remove_from_cart / set_quantity instead of create_checkout_session."
-                )
             if blocked:
                 payload_out["instruction"] += (
                     f" NOTE: these packs are OUT OF STOCK and must NOT be reordered: {sorted(blocked)}. "
@@ -233,15 +111,6 @@ class BuyerAgent:
             return payload_out
 
         if name == "create_checkout_session":
-            if conv.active_session_id:
-                return {
-                    "created": False,
-                    "code": "CART_EXISTS",
-                    "message": (
-                        f"Cart {conv.active_session_id} is already live. Edit it with "
-                        "add_to_cart / remove_from_cart / set_quantity."
-                    ),
-                }
             items = _coerce_items(args.get("items", []))
             if len(items) > 15:
                 return {
@@ -266,8 +135,14 @@ class BuyerAgent:
             status, payload = self.merchant.create_checkout(items)
             session = payload.get("checkout_session")
             if status == 201 and session and session.get("status") == "requires_payment":
-                self._remember(conv, session)
-                return {"created": True, "session": self._session_out(session)}
+                conv.active_session_id = session["checkout_session_id"]
+                return {
+                    "created": True,
+                    "checkout_session_id": session["checkout_session_id"],
+                    "status": session["status"],
+                    "line_items": session["line_items"],
+                    "totals": session["totals"],
+                }
             if "error" in payload:
                 err = payload["error"]
                 return {
@@ -279,113 +154,25 @@ class BuyerAgent:
                 }
             return {"created": False, "raw": payload}
 
-        if name == "add_to_cart":
-            items = _coerce_items(args.get("items", []))
-            if not items:
-                return {"updated": False, "code": "INVALID_REQUEST", "message": "No items supplied."}
-            if conv.last_candidates:
-                known = {c["pack_id"] for c in conv.last_candidates}
-                unknown = sorted({str(i.get("pack_id")) for i in items} - known)
-                if unknown:
-                    return {
-                        "updated": False,
-                        "code": "UNKNOWN_PACKS",
-                        "message": (
-                            f"Unknown pack_ids {unknown}. Call discover_products first and add "
-                            "ONLY candidate pack_ids."
-                        ),
-                    }
-            if not conv.active_session_id:
-                # No cart yet: adding is how the first cart starts.
-                return self._execute_tool(conv, "create_checkout_session", {"items": items})
-            basket = _basket_map(conv.last_basket_items)
-            for i in items:
-                key = (str(i.get("product_id")), str(i.get("pack_id")))
-                basket[key] = basket.get(key, 0) + max(1, min(10, int(i.get("quantity", 1))))
-            return self._apply_edit(conv, _items_from_map(basket))
-
-        if name == "remove_from_cart":
-            raw_ids = args.get("pack_ids", [])
-            refs = raw_ids if isinstance(raw_ids, list) else [raw_ids]
-            removable, missed = self._resolve_in_cart(conv, refs)
-            if not removable:
-                return {
-                    "updated": False,
-                    "code": "NOT_IN_CART",
-                    "message": f"None of {refs} match anything in the cart. Use exact pack_id or item name from current_cart.",
-                    "current_cart": self._cart_hint(conv),
-                }
-            basket = _basket_map(conv.last_basket_items)
-            for key in [k for k in basket if k[1] in removable]:
-                del basket[key]
-            remaining = _items_from_map(basket)
-            if not remaining:
-                # Merchant requires >=1 line item; emptying means cancelling.
-                outcome = self._execute_tool(conv, "cancel_checkout_session", {})
-                outcome["emptied_cart"] = True
-                outcome["ignored_not_in_cart"] = missed
-                return outcome
-            result = self._apply_edit(conv, remaining)
-            if missed:
-                result["ignored_not_in_cart"] = missed
-            return result
-
-        if name == "set_quantity":
-            pack_ref = str(args.get("pack_id", ""))
-            try:
-                qty = int(args.get("quantity"))
-            except (TypeError, ValueError):
-                return {"updated": False, "code": "INVALID_REQUEST", "message": "quantity must be a number"}
-            qty = max(0, min(10, qty))
-            resolved, _missed = self._resolve_in_cart(conv, [pack_ref])
-            if not resolved:
-                return {
-                    "updated": False,
-                    "code": "NOT_IN_CART",
-                    "message": f"{pack_ref} does not match anything in the cart. Use exact pack_id or item name from current_cart.",
-                    "current_cart": self._cart_hint(conv),
-                }
-            target_pack = resolved[0]
-            basket = _basket_map(conv.last_basket_items)
-            target_key = next((k for k in basket if k[1] == target_pack), None)
-            if target_key is None:  # pragma: no cover — resolver guarantees presence
-                return {"updated": False, "code": "NOT_IN_CART", "current_cart": self._cart_hint(conv)}
-            if qty == 0:
-                del basket[target_key]
-                remaining = _items_from_map(basket)
-                if not remaining:
-                    outcome = self._execute_tool(conv, "cancel_checkout_session", {})
-                    outcome["emptied_cart"] = True
-                    return outcome
-                return self._apply_edit(conv, remaining)
-            basket[target_key] = qty
-            return self._apply_edit(conv, _items_from_map(basket))
-
         if name == "cancel_checkout_session":
             csid = args.get("checkout_session_id") or conv.active_session_id
             if not csid:
-                return {"cancelled": False, "reason": "no active cart"}
+                return {"cancelled": False, "reason": "no active session"}
             status, payload = self.merchant.cancel_checkout(csid)
             session = payload.get("checkout_session", {})
             ok = status == 200 and session.get("status") == "cancelled"
             if ok:
-                self._forget_cart(conv)
+                conv.active_session_id = None
             return {"cancelled": ok, "status": session.get("status")}
 
         return {"error": f"unknown tool {name}"}
 
     # -------------------------------------------------- LLM loop
 
-    def llm_loop(self, conv, instruction: str, directive: str | None = None) -> Generator[dict, None, None]:
-        """Run the NIM tool-loop. Yields events; never parks — chat stays open.
-
-        `directive` is a one-turn system nudge (e.g. when the user asks to place
-        the order before the agent asked) — it is NOT persisted to history."""
+    def llm_loop(self, conv, instruction: str) -> Generator[dict, None, None]:
+        """Run the NIM tool-loop. Yields events; pauses on a created checkout."""
         conv.llm_history.append({"role": "user", "content": instruction})
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        if directive:
-            messages.append({"role": "system", "content": directive})
-        messages.extend(conv.llm_history)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}, *conv.llm_history]
 
         for _ in range(settings.max_agent_iterations):
             try:
@@ -423,25 +210,39 @@ class BuyerAgent:
                         args = json.loads(tc.function.arguments or "{}")
                     except json.JSONDecodeError:
                         args = {}
+                    import pathlib
+
+                    pathlib.Path("buyer_service_debug.log").open("a", encoding="utf-8").write(
+                        f"TOOL {name} ARGS({len(tc.function.arguments or '')}): {(tc.function.arguments or '')[:400]}\n"
+                    )
                     yield {"type": "tool", "tool": name, "summary": _summarize_args(name, args), "ok": True}
                     result = self._execute_tool(conv, name, args)
                     yield from self._post_tool_events(conv, name, result)
+                    if result.get("created") is True:
+                        # Deterministic gate: show the bill, park the loop.
+                        session_like = {
+                            "checkout_session_id": result["checkout_session_id"],
+                            "line_items": result["line_items"],
+                            "totals": result["totals"],
+                        }
+                        yield self.present_bill(conv, session_like)
+                        conv.llm_history = messages[1:]  # persist progress
+                        conv.llm_history.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": json.dumps(result),
+                            }
+                        )
+                        yield BILL_PAUSE
+                        return
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
                 continue
 
             # No tool calls -> final assistant message for this turn.
-            raw = (msg.content or "").strip()
-            asked_approval = ASK_APPROVAL in raw
-            content = raw.replace(ASK_APPROVAL, "").replace("[AWAITING_APPROVAL]", "").strip()
+            content = (msg.content or "").strip()
             conv.llm_history.append({"role": "assistant", "content": content})
             yield {"type": "message", "content": content}
-            if asked_approval:
-                conv.awaiting_payment_consent = True
-                totals = _TOTAL_RE.findall(content)
-                yield {
-                    "type": "approval_request",
-                    "total": int(totals[-1].replace(",", "")) if totals else None,
-                }
             return
 
         yield {"type": "message", "content": "I couldn't finish within my step budget. Please rephrase or try again."}
@@ -450,43 +251,36 @@ class BuyerAgent:
         """Human-friendly echoes of tool outcomes."""
         if name == "discover_products" and "candidates" in result:
             yield {"type": "found", "summary": _shorten_discovery(result), "candidates": result["candidates"]}
-        session = result.get("session")
-        if isinstance(session, dict) and session.get("checkout_session_id"):
-            yield {"type": "cart_updated", **session}
-        if result.get("cancelled"):
-            yield {
-                "type": "cart_closed",
-                "checkout_session_id": "",
-                "reason": "emptied_by_user" if result.get("emptied_cart") else "cancelled_by_user",
-            }
+        if name == "cancel_checkout_session" and result.get("cancelled"):
             yield {"type": "status", "checkout_session_id": "", "status": "cancelled"}
 
     # -------------------------------------------------- approval-gated payment
 
-    def present_cart(self, conv, session: dict, note: str | None = None, change: dict | None = None) -> dict:
-        """Record internal approval context and emit a cart_updated event."""
+    def present_bill(self, conv, session: dict, note: str | None = None, change: dict | None = None) -> dict:
         approval_id = f"apr_{uuid.uuid4().hex[:8]}"
         conv.pending_approval = {
             "approval_id": approval_id,
             "checkout_session_id": session["checkout_session_id"],
             "kind": "revised" if change else "initial",
         }
-        conv.active_session_id = session.get("checkout_session_id")
-        conv.last_basket_items = [dict(li) for li in session.get("line_items", [])]
+        if not change:
+            conv.last_basket_items = [dict(li) for li in session.get("line_items", [])]
         return {
-            "type": "cart_updated",
-            **self._session_out(session),
+            "type": "bill",
+            "approval_id": approval_id,
+            "checkout_session_id": session["checkout_session_id"],
+            "line_items": session["line_items"],
+            "totals": session["totals"],
             "note": note,
             "change": change,
         }
 
     def resume_after_decision(self, conv, approved: bool) -> Generator[dict, None, None]:
-        """Continue after the user answers a payment question (text consent)."""
+        """Continue after the user answers the bill card."""
         pending = conv.pending_approval
         conv.pending_approval = None
-        conv.awaiting_payment_consent = False
         if not pending:
-            yield {"type": "message", "content": "There's nothing to confirm right now."}
+            yield {"type": "message", "content": "There's no bill waiting for approval."}
             return
 
         csid = pending["checkout_session_id"]
@@ -494,41 +288,16 @@ class BuyerAgent:
         if not approved:
             status_code, payload = self.merchant.cancel_checkout(csid)
             conv.active_session_id = None
-            session = payload.get("checkout_session", {})
             yield {
                 "type": "status",
                 "checkout_session_id": csid,
-                "status": session.get("status", "cancelled"),
+                "status": payload.get("checkout_session", {}).get("status", "cancelled"),
             }
-            yield {"type": "cart_closed", "checkout_session_id": csid, "reason": "cancelled_by_user"}
             yield {"type": "message", "content": "No problem — I cancelled that order. Nothing was charged."}
             return
 
-        # Accept revised terms first if a price change moved us to confirmation.
-        _, current = self.merchant.get_checkout(csid)
-        cur = current.get("checkout_session", {})
-        if cur.get("status") == "requires_confirmation":
-            conf_status, conf_payload = self.merchant.confirm_checkout(csid, True, cur.get("version", 1))
-            updated = conf_payload.get("checkout_session", {})
-            if conf_status != 200 or updated.get("status") != "requires_payment":
-                err = conf_payload.get("error", {})
-                yield {
-                    "type": "message",
-                    "content": (
-                        f"⚠️ The terms changed again while confirming ({err.get('message', 'stale terms')}). "
-                        "Nothing was charged — let's take another look together."
-                    ),
-                }
-                yield {"type": "cart_updated", **self._session_out(updated or cur)}
-                return
-            yield {"type": "cart_updated", **self._session_out(updated)}
-
-        conv.payment_in_flight = True
-        try:
-            yield {"type": "message", "content": "Thanks! Processing your payment…"}
-            yield from self._complete_flow(conv, csid)
-        finally:
-            conv.payment_in_flight = False
+        yield {"type": "message", "content": "Thanks! Processing your payment…"}
+        yield from self._complete_flow(conv, csid)
 
     def _complete_flow(self, conv, csid: str) -> Generator[dict, None, None]:
         status_code, payload = self.merchant.complete_checkout(csid)
@@ -543,18 +312,17 @@ class BuyerAgent:
                 saved = pay.get("saved_card")
                 driver = pay.get("driver")
                 if saved:
-                    how = f"using your saved {saved.get('network') or 'card'} ••••{saved.get('last4')} — charged automatically"
+                    how = f"using your saved {saved.get('network') or 'card'} ••••{saved.get('last4')}"
                 elif driver == "sim":
                     how = "(test-mode simulation)"
                 else:
                     how = "via Razorpay"
-                yield {"type": "cart_closed", "checkout_session_id": csid, "reason": "completed"}
                 yield {
                     "type": "message",
                     "content": f"✅ Order placed! You paid ₹{total} {how}. Receipt: {csid}. "
                     f"It'll be delivered soon.",
                 }
-                self._forget_cart(conv)
+                conv.active_session_id = None
             elif status == "payment_pending":
                 yield {
                     "type": "message",
@@ -594,10 +362,10 @@ class BuyerAgent:
                 "status": session.get("status"),
             }
             old, new = change.get("old_total"), change.get("new_total")
-            yield self.present_cart(
+            yield from self.present_bill_and_pause(
                 conv,
                 self.merchant.get_checkout(csid)[1].get("checkout_session", session),
-                note=f"Heads up — the price just changed from ₹{old} to ₹{new}. Shall I continue with the new total?",
+                note=f"Heads up — the price just changed from ₹{old} to ₹{new}.",
                 change=change,
             )
             return
@@ -621,13 +389,12 @@ class BuyerAgent:
 
             yield {"type": "status", "checkout_session_id": csid, "status": session.get("status")}
             names = ", ".join(li["name"] for li in declined_lines)
-            yield {"type": "cart_closed", "checkout_session_id": csid, "reason": "stock_declined"}
             yield {
                 "type": "message",
                 "content": f"⚠️ Sorry — {names} went out of stock right before payment. "
                 "No money was charged. Let me find alternatives for you.",
             }
-            self._forget_cart(conv)
+            conv.active_session_id = None
             # Deterministic recovery: propose options, ASK, wait. No LLM, no auto-reorder.
             yield from self._propose_substitutes(conv, declined_lines)
             return
@@ -642,9 +409,13 @@ class BuyerAgent:
             "PAYMENT_FAILED": "the payment was rejected by the gateway.",
         }
         reason = friendly.get(error.get("code", ""), error.get("message", "the merchant refused it."))
-        yield {"type": "cart_closed", "checkout_session_id": csid, "reason": "declined"}
         yield {"type": "message", "content": f"❌ Sorry — I couldn't place this order because {reason} Nothing was charged."}
-        self._forget_cart(conv)
+        conv.active_session_id = None
+
+    def present_bill_and_pause(
+        self, conv, session: dict, note: str | None = None, change: dict | None = None
+    ) -> Generator[dict, None, None]:
+        yield self.present_bill(conv, session, note=note, change=change)
 
     # -------------------------------------------------- substitute consent flow
 
@@ -787,12 +558,9 @@ class BuyerAgent:
         status_code, payload = self.merchant.create_checkout(items)
         session = payload.get("checkout_session")
         if status_code == 201 and session and session.get("status") == "requires_payment":
+            conv.active_session_id = session["checkout_session_id"]
             note = f"Swapped {unavailable['name']} → {chosen['name']} at your suggestion."
-            yield self.present_cart(conv, session, note=note)
-            yield {
-                "type": "message",
-                "content": "Your cart is ready again. Say \"place the order\" whenever you're happy with it!",
-            }
+            yield self.present_bill(conv, session, note=note)
             return
         err = payload.get("error", {})
         friendly = {

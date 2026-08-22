@@ -18,8 +18,6 @@ class Conversation:
     declined_packs: list[str] = field(default_factory=list)    # packs declined as out-of-stock
     offered_pack_ids: list[str] = field(default_factory=list)  # substitutes already shown
     substitution_rounds: int = 0
-    awaiting_payment_consent: bool = False   # armed by [ASK_APPROVAL]; classifier gates next reply
-    payment_in_flight: bool = False          # completion/charge streaming; blocks edits
     busy: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
 

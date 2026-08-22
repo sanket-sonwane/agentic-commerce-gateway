@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { SendHorizontal, ArrowDown, Soup, Croissant, ShoppingBasket, Search, ReceiptText, Ban, PackagePlus, PackageMinus, Hash } from 'lucide-react'
+import { SendHorizontal, ArrowDown, Soup, Croissant, ShoppingBasket, Search, ReceiptText, Ban } from 'lucide-react'
 import { streamSSE } from '../api.js'
 import MessageBubble from '../components/MessageBubble.jsx'
 import ActivityChip, { FoundChip } from '../components/ActivityChip.jsx'
-import CartSummary from '../components/CartSummary.jsx'
+import BillCard from '../components/BillCard.jsx'
 import SubstituteCard from '../components/SubstituteCard.jsx'
 import StatusPill from '../components/StatusPill.jsx'
 import RazorpayPayCard from '../components/RazorpayPayCard.jsx'
@@ -11,9 +11,6 @@ import RazorpayPayCard from '../components/RazorpayPayCard.jsx'
 const TOOL_ICONS = {
   discover_products: Search,
   create_checkout_session: ReceiptText,
-  add_to_cart: PackagePlus,
-  remove_from_cart: PackageMinus,
-  set_quantity: Hash,
   cancel_checkout_session: Ban,
 }
 
@@ -27,8 +24,8 @@ export default function ChatView() {
   const [events, setEvents] = useState([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
+  const [pendingBill, setPendingBill] = useState(null)
   const [pendingSub, setPendingSub] = useState(null)
-  const [consent, setConsent] = useState(null) // {total} when a payment question is open
   const [busy, setBusy] = useState(false)
   const [showFab, setShowFab] = useState(false)
   const scrollRef = useRef(null)
@@ -50,19 +47,24 @@ export default function ChatView() {
   function applyEvent(e) {
     e.time = Date.now()
     setEvents(prev => [...prev, e])
-    if (e.type === 'substitute_proposal') setPendingSub(e)
-    else if (e.type === 'approval_request') setConsent({ total: e.total })
-    else if (e.type === 'cart_closed') setConsent(null)
-    else if (e.type === 'status' && ['completed', 'declined', 'cancelled', 'payment_pending'].includes(e.status)) setConsent(null)
+    if (e.type === 'bill') setPendingBill(e)
+    else if (e.type === 'substitute_proposal') setPendingSub(e)
   }
 
   async function send(text) {
     if (!text.trim() || busy) return
     setInput('')
     stickBottom.current = true
-    setConsent(null)
     setEvents(prev => [...prev, { type: 'user_message', content: text, time: Date.now() }])
     await runStream('/chat', { message: text, conversation_id: conversationId })
+  }
+
+  async function decide(approved) {
+    if (!pendingBill || busy) return
+    const bill = pendingBill
+    setPendingBill(null)
+    setEvents(prev => prev.map(ev => (ev === bill ? { ...ev, resolved: approved ? 'approved' : 'cancelled' } : ev)))
+    await runStream(`/conversations/${conversationId}/decision`, { approved })
   }
 
   async function choose(choice) {
@@ -105,13 +107,11 @@ export default function ChatView() {
     setShowFab(!stickBottom.current && events.length > 0)
   }
 
-  // Chat stays open while a cart is live — only the substitution chooser blocks input.
-  const blockedReason = pendingSub ? 'Pick an option on the substitution card above' : null
-  const placeholder = consent
-    ? consent.total != null
-      ? `Reply “yes” to pay ₹${consent.total}, or tell me what to change…`
-      : 'Reply “yes” to place the order, or tell me what to change…'
-    : 'What would you like to order?'
+  const blockedReason = pendingBill
+    ? 'Answer the bill above to continue'
+    : pendingSub
+      ? 'Pick an option on the substitution card above'
+      : null
 
   return (
     <div className="chat-wrap">
@@ -120,7 +120,7 @@ export default function ChatView() {
           <div className="hero">
             <div className="hero-mark"><ShoppingBasket size={28} /></div>
             <h2>Groceries, ordered by AI.</h2>
-            <p>Chat naturally — add, remove and tweak your cart, then say “place the order”.</p>
+            <p>Describe what you need — your agent shops, and you approve the bill.</p>
             <div className="sugg-grid">
               {SUGGESTIONS.map(s => (
                 <button key={s.text} className="sugg-card" onClick={() => send(s.text)}>
@@ -131,11 +131,11 @@ export default function ChatView() {
             </div>
           </div>
         ) : (
-          <div className="sysline">Every order needs your “yes” in chat before any payment</div>
+          <div className="sysline">Every order needs your approval before any payment</div>
         )}
 
         {events.map((ev, i) => (
-          <EventView key={i} ev={ev} busy={busy} onPaid={paymentPaid} onChoose={choose} />
+          <EventView key={i} ev={ev} onDecide={decide} busy={busy} onPaid={paymentPaid} onChoose={choose} />
         ))}
 
         {busy && (
@@ -156,7 +156,7 @@ export default function ChatView() {
             ref={taRef}
             rows={1}
             value={input}
-            placeholder={placeholder}
+            placeholder={blockedReason ? blockedReason + '…' : 'What would you like to order?'}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -175,12 +175,11 @@ export default function ChatView() {
   )
 }
 
-function EventView({ ev, busy, onPaid, onChoose }) {
+function EventView({ ev, onDecide, busy, onPaid, onChoose }) {
   switch (ev.type) {
     case 'user_message':
       return <MessageBubble role="user" content={ev.content} ts={ev.time} />
     case 'message':
-      if (!ev.content) return null
       return <MessageBubble role="ai" content={ev.content} ts={ev.time} />
     case 'tool':
       return <ActivityChip icon={TOOL_ICONS[ev.tool]} label={ev.summary || ev.tool} defaultOpen={false} />
@@ -190,14 +189,8 @@ function EventView({ ev, busy, onPaid, onChoose }) {
       return <StatusPill ev={ev} />
     case 'error':
       return <div className="alert-line anim-in">⚠ {ev.content}</div>
-    case 'cart_updated':
-      return <CartSummary ev={ev} />
-    case 'cart_closed': {
-      const why = (ev.reason || '').replaceAll('_', ' ')
-      return <div className="sysline">🛒 cart closed{why ? ` · ${why}` : ''}</div>
-    }
-    case 'approval_request':
-      return null
+    case 'bill':
+      return <BillCard ev={ev} onDecide={onDecide} busy={busy} />
     case 'substitute_proposal':
       return <SubstituteCard ev={ev} onChoose={onChoose} busy={busy} />
     case 'bill_redirect':
