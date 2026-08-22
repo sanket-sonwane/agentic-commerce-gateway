@@ -5,6 +5,7 @@
     GET  /conversations/{id}                                     -> transcript replay
 """
 import queue
+import re
 import threading
 
 from fastapi import FastAPI, HTTPException
@@ -26,6 +27,53 @@ app.add_middleware(
 )
 
 agent = BuyerAgent()
+
+# Deterministic small-talk/acknowledgment gate: pure greetings AND short
+# reactions ("nice", "perfect", "ok") never reach the LLM — 8B models respond
+# to them by copying the prompt's example queries into discover_products.
+# Rule: every word of a SHORT message must belong to this whitelist.
+_ACK_WORDS = {
+    # greetings
+    "hi", "hii", "hiii", "hey", "hello", "yo", "hlo", "sup",
+    "namaste", "namaskar", "morning", "afternoon", "evening",
+    # acknowledgments / reactions
+    "ok", "okay", "k", "kk", "nice", "perfect", "great", "awesome",
+    "cool", "wow", "lol", "super", "amazing", "osm", "good", "fine",
+    "alright", "right", "sahi", "acha", "accha", "achha", "theek",
+    "thik", "haan", "haanji", "haa", "han", "yes", "yeah", "yep",
+    "yup", "no", "nope", "nahi", "done", "thanks", "thank", "thx",
+    "ty", "welcome", "bilkul", "sahi", "hai", "hain",
+}
+_ACK_FILLERS = {"bhai", "ji", "yaar", "bro", "sir", "na"}
+_ACK_MAX_WORDS = 4
+
+
+def _is_smalltalk(text: str) -> bool:
+    words = re.findall(r"[a-z']+", (text or "").lower())
+    if not words or len(words) > _ACK_MAX_WORDS:
+        return False
+    return all(w in _ACK_WORDS or w in _ACK_FILLERS for w in words)
+
+
+def _smalltalk_gen(text: str):
+    words = set(re.findall(r"[a-z']+", (text or "").lower()))
+    if words & {"hi", "hii", "hiii", "hey", "hello", "yo", "hlo", "sup", "namaste", "namaskar"}:
+        lead = "Hello! 👋"
+    elif words & {"thanks", "thank", "thx", "ty"}:
+        lead = "Anytime! 😊"
+    else:
+        lead = "Glad you like it! 😊"
+
+    def gen():
+        yield {
+            "type": "message",
+            "content": (
+                f"{lead} What would you like to buy? Tell me the items or a recipe — "
+                'e.g. "milk, bread and eggs under ₹300" — and I\'ll build your cart.'
+            ),
+        }
+
+    return gen()
 
 
 class ChatRequest(BaseModel):
@@ -95,10 +143,13 @@ def chat(body: ChatRequest):
             raise HTTPException(status_code=409, detail="An item substitution is awaiting your answer above.")
         conv.busy = True
     conv.emit({"type": "user_message", "content": body.message})
+    prelude = [{"type": "conversation_started", "conversation_id": conv.id}]
+    if _is_smalltalk(body.message):
+        return _stream(conv, _smalltalk_gen(body.message), prelude=prelude)
     return _stream(
         conv,
         agent.llm_loop(conv, body.message),
-        prelude=[{"type": "conversation_started", "conversation_id": conv.id}],
+        prelude=prelude,
     )
 
 

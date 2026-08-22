@@ -109,3 +109,14 @@ class MerchantClient:
             timeout=30,
         )
         return r.status_code, r.json()
+
+    def reconcile(self, checkout_session_id: str) -> tuple[int, dict]:
+        r = httpx.post(f"{self.base}/checkout_sessions/{checkout_session_id}/reconcile", timeout=30)
+        return r.status_code, r.json()
+
+    def reconcile(self, checkout_session_id: str) -> tuple[int, dict]:
+        r = httpx.post(
+            f"{self.base}/checkout_sessions/{checkout_session_id}/reconcile",
+            timeout=30,
+        )
+        return r.status_code, r.json()

@@ -827,7 +827,22 @@ def complete_checkout(
         outcome = payment_service.charge_with_token(
             order["id"], amount_paise, method.razorpay_customer_id or "", method.razorpay_token_id
         )
-        return _finalize_payment(db, cs, outcome), False
+        if outcome.status != "declined":
+            return _finalize_payment(db, cs, outcome), False
+        # Gateway rejected the saved-card token (e.g. network unsupported in test
+        # mode). Do NOT terminally decline the order — fall back to human
+        # authorization via the Razorpay Checkout modal on the SAME open order.
+        audit_service.append_event(
+            db,
+            actor="merchant_agent",
+            action="token_charge_fallback",
+            checkout_session_id=cs.checkout_session_id,
+            decision="info",
+            reasoning_summary=(
+                f"Saved-card charge rejected ({outcome.message}); falling back to "
+                "Razorpay Checkout modal authorization on the same order"
+            ),
+        )
 
     # Park the session for modal authorization.
     customer_id: str | None = None

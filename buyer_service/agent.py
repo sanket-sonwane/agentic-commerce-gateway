@@ -324,11 +324,36 @@ class BuyerAgent:
                 }
                 conv.active_session_id = None
             elif status == "payment_pending":
-                yield {
-                    "type": "message",
-                    "content": "⏳ Your payment is stuck in verification at the bank's end. "
-                    "Nothing is charged yet — I'll check back rather than retry blindly.",
-                }
+                rec_status, rec_payload = self.merchant.reconcile(csid)
+                rec_session = (
+                    rec_payload.get("checkout_session", {})
+                    if isinstance(rec_payload, dict)
+                    else {}
+                )
+                if rec_session.get("status") == "completed":
+                    total = rec_session.get("totals", {}).get("total")
+                    yield {
+                        "type": "status",
+                        "checkout_session_id": csid,
+                        "status": "completed",
+                        "payment": rec_session.get("payment", {}),
+                    }
+                    yield {
+                        "type": "message",
+                        "content": f"✅ Good news — reconciliation confirmed your payment of ₹{total} "
+                        f"went through. Receipt: {csid}.",
+                    }
+                else:
+                    yield {
+                        "type": "message",
+                        "content": (
+                            "⏳ The connection to the payment gateway dropped while creating your order, "
+                            "so this attempt was parked safely. Nothing was charged and no order exists "
+                            f"at Razorpay yet. Receipt reference: {csid}. Tell me what you'd like again "
+                            "and I'll place a fresh order."
+                        ),
+                    }
+                conv.active_session_id = None
             elif status == "requires_payment" and session.get("payment", {}).get("awaiting_authorization"):
                 pay = session.get("payment", {})
                 total = session.get("totals", {}).get("total") or 0
