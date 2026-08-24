@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ShoppingBag, Sun, Moon, X, LayoutDashboard } from 'lucide-react'
+import { ShoppingBag, Sun, Moon, X, LayoutDashboard, ShieldCheck } from 'lucide-react'
 import ChatView from './views/ChatView.jsx'
 import OpsView from './views/OpsView.jsx'
-import { checkHealth } from './api.js'
+import { checkHealth, merchantFetch } from './api.js'
 
 /**
  * Single-window shell: chat is home; Merchant Ops opens as a slide-over
@@ -13,6 +13,13 @@ export default function App() {
   const [focusSession, setFocusSession] = useState(null)
   const [theme, setTheme] = useState(() => localStorage.getItem('acg-theme') || 'dark')
   const [health, setHealth] = useState({ merchant: null, buyer: null })
+  const [integrity, setIntegrity] = useState(null)
+
+  useEffect(() => {
+    if (opsOpen && !integrity) {
+      merchantFetch('/audit_logs/verify').then(r => setIntegrity(r.body)).catch(() => {})
+    }
+  }, [opsOpen, integrity])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -79,6 +86,12 @@ export default function App() {
           <aside className="ops-panel" role="dialog" aria-label="Merchant operations and audit trail">
             <div className="ops-head">
               <h2><LayoutDashboard size={15} /> Merchant Ops — audit trail</h2>
+              {integrity && (
+                <span className={`integrity-badge ${integrity.intact ? 'yes' : 'no'}`}>
+                  <ShieldCheck size={12} />
+                  {integrity.intact ? `chain ✓ ${integrity.entries_checked}` : `tampered @${integrity.first_broken_seq}`}
+                </span>
+              )}
               <button className="icon-btn" title="Close" onClick={() => setOpsOpen(false)}>
                 <X size={16} />
               </button>

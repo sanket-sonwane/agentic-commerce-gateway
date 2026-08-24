@@ -1,5 +1,5 @@
 import {
-  Milk, Carrot, Wheat, Croissant, Beef, CupSoda, Cookie, SprayCan, Egg, Fish, Package,
+  Milk, Carrot, Wheat, Croissant, Beef, CupSoda, Cookie, SprayCan, Fish, Package,
 } from 'lucide-react'
 
 const MAP = {
@@ -15,6 +15,6 @@ const MAP = {
 
 export default function CategoryIcon({ category, size = 14 }) {
   const entry = MAP[category] || {}
-  const Icon = entry.Icon || (category === 'meat_eggs' ? Egg : category === 'seafood' ? Fish : Package)
+  const Icon = entry.Icon || (category === 'seafood' ? Fish : Package)
   return <Icon size={size} strokeWidth={2} />
 }
