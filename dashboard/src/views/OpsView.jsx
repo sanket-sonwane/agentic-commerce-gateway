@@ -39,12 +39,19 @@ function actionVisual(ev) {
   return { Icon: Dot }
 }
 
-export default function OpsView() {
+export default function OpsView({ focusSessionId = null }) {
   const [sessions, setSessions] = useState([])
-  const [selected, setSelected] = useState(null)
+  const [selected, setSelected] = useState(focusSessionId)
   const [opsStatus, setOpsStatus] = useState(null)
   const [tab, setTab] = useState('tx')
   const [agentSessionId, setAgentSessionId] = useState(null)
+
+  useEffect(() => {
+    if (focusSessionId) {
+      setSelected(focusSessionId)
+      setTab('tx')
+    }
+  }, [focusSessionId])
 
   const refreshSessions = useCallback(async () => {
     try {

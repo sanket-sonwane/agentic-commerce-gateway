@@ -1,0 +1,95 @@
+/* ============================================================
+   ACG design tokens — dark-premium default, light alternative
+   Single source of truth. Components never hard-code colors.
+   ============================================================ */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* surfaces */
+  --bg: #0b0e14;
+  --bg-soft: #0f131c;
+  --surface: #141924;
+  --surface-2: #1a2130;
+  --surface-3: #212a3b;
+  --border: #26304200;
+  --border: #263042;
+  --border-soft: #1e2735;
+
+  /* text */
+  --text: #e9edf5;
+  --text-dim: #b7c1d1;
+  --muted: #8b97ab;
+  --faint: #5d6879;
+
+  /* brand + accents */
+  --accent: #6c7bff;
+  --accent-strong: #5865f2;
+  --accent-soft: rgba(108, 123, 255, 0.14);
+  --brand-grad: linear-gradient(135deg, #6c7bff 0%, #9b6cff 100%);
+
+  /* semantic money states */
+  --green: #34d399;
+  --green-soft: rgba(52, 211, 153, 0.12);
+  --amber: #fbbf24;
+  --amber-soft: rgba(251, 191, 36, 0.12);
+  --red: #f87171;
+  --red-soft: rgba(248, 113, 113, 0.12);
+
+  /* chat */
+  --bubble-ai: #182031;
+  --bubble-user: linear-gradient(135deg, #5865f2, #7c5cf0);
+  --bubble-user-text: #ffffff;
+
+  /* geometry */
+  --r-sm: 9px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-full: 999px;
+
+  /* elevation */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 6px 24px -8px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 16px 48px -12px rgba(0, 0, 0, 0.65);
+
+  /* motion */
+  --ease: cubic-bezier(0.22, 0.8, 0.3, 1);
+  --t-fast: 140ms;
+  --t-med: 240ms;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f4f6fa;
+  --bg-soft: #eef1f7;
+  --surface: #ffffff;
+  --surface-2: #f4f6fb;
+  --surface-3: #e9edf5;
+  --border: #dde3ee;
+  --border-soft: #e7ecf4;
+
+  --text: #17202e;
+  --text-dim: #3d4a5e;
+  --muted: #66738a;
+  --faint: #98a3b6;
+
+  --accent: #5563f0;
+  --accent-strong: #4451e8;
+  --accent-soft: rgba(85, 99, 240, 0.1);
+
+  --green: #0eaa74;
+  --green-soft: rgba(14, 170, 116, 0.1);
+  --amber: #b57e08;
+  --amber-soft: rgba(181, 126, 8, 0.1);
+  --red: #dc4a4a;
+  --red-soft: rgba(220, 74, 74, 0.09);
+
+  --bubble-ai: #ffffff;
+  --bubble-user: linear-gradient(135deg, #5563f0, #7c5cf0);
+
+  --shadow-1: 0 1px 2px rgba(23, 32, 46, 0.08);
+  --shadow-2: 0 6px 22px -8px rgba(23, 32, 46, 0.18);
+  --shadow-3: 0 18px 50px -14px rgba(23, 32, 46, 0.28);
+}

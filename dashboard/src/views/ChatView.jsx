@@ -1,18 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { SendHorizontal, ArrowDown, Soup, Croissant, ShoppingBasket, Search, ReceiptText, Ban } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { SendHorizontal, ArrowDown, Soup, Croissant, ShoppingBasket, Eye } from 'lucide-react'
 import { streamSSE } from '../api.js'
+import { toViewItems, orderTitle } from '../utils/events.js'
 import MessageBubble from '../components/MessageBubble.jsx'
-import ActivityChip, { FoundChip } from '../components/ActivityChip.jsx'
-import BillCard from '../components/BillCard.jsx'
-import SubstituteCard from '../components/SubstituteCard.jsx'
-import StatusPill from '../components/StatusPill.jsx'
-import RazorpayPayCard from '../components/RazorpayPayCard.jsx'
-
-const TOOL_ICONS = {
-  discover_products: Search,
-  create_checkout_session: ReceiptText,
-  cancel_checkout_session: Ban,
-}
+import WorkingShimmer from '../components/WorkingShimmer.jsx'
+import QuickReplyChips from '../components/QuickReplyChips.jsx'
+import PaymentCard from '../components/PaymentCard.jsx'
 
 const SUGGESTIONS = [
   { icon: Soup, text: 'Buy ingredients for chicken biryani for four people under ₹800' },
@@ -20,7 +13,7 @@ const SUGGESTIONS = [
   { icon: ShoppingBasket, text: 'Order pasta dinner ingredients under ₹600' },
 ]
 
-export default function ChatView() {
+export default function ChatView({ onRequestOps }) {
   const [events, setEvents] = useState([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
@@ -32,10 +25,12 @@ export default function ChatView() {
   const taRef = useRef(null)
   const stickBottom = useRef(true)
 
+  const viewItems = useMemo(() => toViewItems(events, { busy }), [events, busy])
+
   useEffect(() => {
     if (stickBottom.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
     setShowFab(!stickBottom.current && events.length > 0)
-  }, [events, busy])
+  }, [viewItems, busy])
 
   useEffect(() => {
     const ta = taRef.current
@@ -71,8 +66,9 @@ export default function ChatView() {
     if (!pendingSub || busy) return
     const sub = pendingSub
     setPendingSub(null)
-    const resolvedTag = choice === 'cancel' ? 'cancelled' : choice === 'other' ? 'other' : 'chosen'
-    setEvents(prev => prev.map(ev => (ev === sub ? { ...ev, resolved: resolvedTag } : ev)))
+    setEvents(prev =>
+      prev.map(ev => (ev === sub ? { ...ev, resolved: choice === 'cancel' ? 'cancelled' : choice === 'other' ? 'other' : 'chosen' } : ev)),
+    )
     await runStream(`/conversations/${conversationId}/choose`, { choice })
   }
 
@@ -96,7 +92,7 @@ export default function ChatView() {
     setEvents(prev => [
       ...prev,
       { type: 'status', checkout_session_id: s.checkout_session_id, status: s.status, payment: s.payment, time: Date.now() },
-      { type: 'message', content: `✅ Order placed! You paid **₹${s.totals.total}**. Receipt: \`${s.checkout_session_id}\``, time: Date.now() },
+      { type: 'message', content: `✅ Order placed! You paid **₹${s.totals.total}**.`, time: Date.now() },
     ])
   }
 
@@ -108,44 +104,50 @@ export default function ChatView() {
   }
 
   const blockedReason = pendingBill
-    ? 'Answer the bill above to continue'
+    ? 'Answer the order above to continue'
     : pendingSub
-      ? 'Pick an option on the substitution card above'
+      ? 'Pick an option above to continue'
       : null
 
   return (
     <div className="chat-wrap">
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
-        {events.length === 0 ? (
-          <div className="hero">
-            <div className="hero-mark"><ShoppingBasket size={28} /></div>
-            <h2>Groceries, ordered by AI.</h2>
-            <p>Describe what you need — your agent shops, and you approve the bill.</p>
-            <div className="sugg-grid">
-              {SUGGESTIONS.map(s => (
-                <button key={s.text} className="sugg-card" onClick={() => send(s.text)}>
-                  <span className="si"><s.icon size={17} /></span>
-                  <span>{s.text}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="sysline">Every order needs your approval before any payment</div>
-        )}
+        <div className="chat-inner">
+          {events.length === 0 ? (
+            <>
+              <div className="hero">
+                <div className="hero-mark"><ShoppingBasket size={26} /></div>
+                <h2>Groceries, ordered by AI.</h2>
+                <p>Just say what you need — your agent shops, you approve the bill.</p>
+                <div className="sugg-grid">
+                  {SUGGESTIONS.map(s => (
+                    <button key={s.text} className="sugg-card" onClick={() => send(s.text)}>
+                      <span className="si"><s.icon size={16} /></span>
+                      <span>{s.text}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="trust-line">Every order needs your approval · money only moves after you pay</div>
+            </>
+          ) : null}
 
-        {events.map((ev, i) => (
-          <EventView key={i} ev={ev} onDecide={decide} busy={busy} onPaid={paymentPaid} onChoose={choose} />
-        ))}
-
-        {busy && (
-          <div className="typing-dots"><i /><i /><i /></div>
-        )}
+          {viewItems.map(item => (
+            <ViewItem
+              key={item.id}
+              item={item}
+              busy={busy}
+              onDecide={decide}
+              onChoose={choose}
+              onRequestOps={onRequestOps}
+            />
+          ))}
+        </div>
       </div>
 
       {showFab && (
         <button className="scroll-fab" onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })}>
-          <ArrowDown size={16} />
+          <ArrowDown size={15} />
         </button>
       )}
 
@@ -165,9 +167,10 @@ export default function ChatView() {
               }
             }}
             disabled={!!blockedReason}
+            aria-label="Message your shopping assistant"
           />
           <button className="send-btn" onClick={() => send(input)} disabled={busy || !input.trim()} title="Send">
-            <SendHorizontal size={16} />
+            <SendHorizontal size={15} />
           </button>
         </div>
       </div>
@@ -175,27 +178,136 @@ export default function ChatView() {
   )
 }
 
-function EventView({ ev, onDecide, busy, onPaid, onChoose }) {
-  switch (ev.type) {
-    case 'user_message':
-      return <MessageBubble role="user" content={ev.content} ts={ev.time} />
-    case 'message':
-      return <MessageBubble role="ai" content={ev.content} ts={ev.time} />
-    case 'tool':
-      return <ActivityChip icon={TOOL_ICONS[ev.tool]} label={ev.summary || ev.tool} defaultOpen={false} />
-    case 'found':
-      return <FoundChip ev={ev} />
-    case 'status':
-      return <StatusPill ev={ev} />
+/* ------------------------------------------------ view-item renderer */
+
+function ViewItem({ item, busy, onDecide, onChoose, onRequestOps }) {
+  switch (item.kind) {
+    case 'user':
+      return <MessageBubble role="user" content={item.text} />
+    case 'ai':
+      return <MessageBubble role="ai" content={item.text} />
+    case 'working':
+      return <WorkingShimmer label={item.label} />
+    case 'activity':
+      return (
+        <details className="activity">
+          <summary>agent activity ({item.labels.length} step{item.labels.length > 1 ? 's' : ''})</summary>
+          <ul>{item.labels.map((l, i) => <li key={i}>{l}</li>)}</ul>
+        </details>
+      )
+    case 'order':
+      return <OrderReady item={item} busy={busy} onDecide={onDecide} onRequestOps={onRequestOps} />
+    case 'swap':
+      return <SwapOffer item={item} busy={busy} onChoose={onChoose} />
+    case 'payment':
+      return <PaymentSlot ev={item.ev} />
+    case 'caption':
+      return <Caption item={item} onRequestOps={onRequestOps} />
     case 'error':
-      return <div className="alert-line anim-in">⚠ {ev.content}</div>
-    case 'bill':
-      return <BillCard ev={ev} onDecide={onDecide} busy={busy} />
-    case 'substitute_proposal':
-      return <SubstituteCard ev={ev} onChoose={onChoose} busy={busy} />
-    case 'bill_redirect':
-      return <RazorpayPayCard redirect={ev} onPaid={onPaid} />
+      return <div className="alert-line anim-in">⚠ {item.text}</div>
     default:
       return null
   }
+}
+
+/* ---------------------------------------------- order-ready (conversational bill) */
+
+function OrderReady({ item, busy, onDecide, onRequestOps }) {
+  const { ev, resolved } = item
+  const items = ev.line_items || []
+  const t = ev.totals || {}
+  return (
+    <div className="msg-row ai">
+      <div className="avatar"><Basket /></div>
+      <div className="msg-body" style={{ maxWidth: 400 }}>
+        <div className="bubble ai-tail order-bubble">
+          <p style={{ margin: '0 0 4px' }}>Your order is ready:</p>
+          <ul className="items">
+            {items.map(li => (
+              <li key={li.pack_id}>
+                <span><b>{li.name}</b>{li.quantity > 1 ? ` ×${li.quantity}` : ''}</span>
+                <span>₹{li.unit_price * li.quantity}</span>
+              </li>
+            ))}
+          </ul>
+          {!!t.shipping && (
+            <div className="items"><li style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}><span>Delivery</span><span>₹{t.shipping}</span></li></div>
+          )}
+          <div className="total-line"><span>Total</span><span>₹{t.total}</span></div>
+          <div className="why-row">
+            <button className="why-link" onClick={() => onRequestOps?.(ev.checkout_session_id)}>
+              <Eye size={12} /> Why these items?
+            </button>
+          </div>
+          <QuickReplyChips
+            choices={[
+              { value: 'approved', label: `✓ Place order · ₹${t.total}`, tone: 'primary', onClick: () => onDecide(true), pickedLabel: '✓ Ordered' },
+              { value: 'cancelled', label: 'Cancel', tone: 'danger', onClick: () => onDecide(false), pickedLabel: 'Cancelled' },
+            ]}
+            disabled={busy}
+            resolved={resolved}
+          />
+        </div>
+        <div className="msg-meta">{orderTitle(items)} · needs your approval</div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------------------------------------- substitution offer */
+
+function SwapOffer({ item, busy, onChoose }) {
+  const { ev, resolved } = item
+  const prop = ev.proposal?.proposal || {}
+  const orig = ev.proposal?.original || {}
+  const save = (orig.price || 0) - (prop.price || 0)
+  return (
+    <div className="msg-row ai">
+      <div className="avatar"><Swap /></div>
+      <div className="msg-body" style={{ maxWidth: 420 }}>
+        <div className="bubble ai-tail order-bubble">
+          <p style={{ margin: '0 0 2px' }}>
+            {(ev.original_name || prop.name)} isn't available right now{ev.proposal?.reason_code === 'requested_pack_unavailable' ? '' : ''}.
+          </p>
+          <div className="swap-line">
+            <span className="swap-old">{orig.pack_id?.replace('pack_', '')}</span>
+            <span className="swap-arrow">→</span>
+            <b>{prop.name} {prop.size}{prop.unit} ×{prop.quantity}</b>
+            <span>₹{prop.line_total ?? prop.price}</span>
+            {save > 0 && <span className="save-badge">save ₹{save}</span>}
+          </div>
+          <QuickReplyChips
+            choices={[
+              { value: 'chosen', label: '✓ Take it', tone: 'primary', onClick: () => onChoose(0), pickedLabel: '✓ Taken' },
+              { value: 'other', label: 'Other options', onClick: () => onChoose('other'), pickedLabel: 'Skipped' },
+              { value: 'cancelled', label: 'Cancel', tone: 'danger', onClick: () => onChoose('cancel'), pickedLabel: 'Cancelled' },
+            ]}
+            disabled={busy}
+            resolved={resolved}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Swap() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 3l5 5-5 5M21 8H9M8 21l-5-5 5-5M3 16h12" />
+    </svg>
+  )
+}
+function Basket() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18M16 10a4 4 0 01-8 0" />
+    </svg>
+  )
+}
+
+/* ---------------------------------------------- payment slot (the money card) */
+
+function PaymentSlot({ ev }) {
+  return <div style={{ marginLeft: 38, marginTop: 4 }}><PaymentCard redirect={ev} /></div>
 }
