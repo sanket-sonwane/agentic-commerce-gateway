@@ -306,10 +306,11 @@ function SwapOffer({ item, busy, onChoose }) {
 function Caption({ item, onRequestOps, onWhy }) {
   const { text, csid, payment } = item
   const explainable = /couldn|pending|cancelled/i.test(text)
+  const paid = /paid/i.test(text)
   return (
-    <div className="caption">
+    <div className={`caption ${paid ? 'gold-line' : ''}`}>
       {text}
-      {csid && /paid/i.test(text) && (
+      {csid && paid && (
         <>
           {' · '}
           <button className="why-link" onClick={() => onRequestOps?.(csid)}>view trail</button>
