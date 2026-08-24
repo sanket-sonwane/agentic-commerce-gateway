@@ -217,7 +217,7 @@ function SessionDetail({ sessionId }) {
       )}
 
       <div className="ops-section-title">Audit timeline</div>
-      <AuditTimeline events={events} />
+      <AuditTimeline events={events} stepper />
     </>
   )
 }
