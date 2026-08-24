@@ -6,6 +6,7 @@ import MessageBubble from '../components/MessageBubble.jsx'
 import WorkingShimmer from '../components/WorkingShimmer.jsx'
 import QuickReplyChips from '../components/QuickReplyChips.jsx'
 import PaymentCard from '../components/PaymentCard.jsx'
+import ExplainDrawer from '../components/ExplainDrawer.jsx'
 
 const SUGGESTIONS = [
   { icon: Soup, text: 'Buy ingredients for chicken biryani for four people under ₹800' },
@@ -21,6 +22,7 @@ export default function ChatView({ onRequestOps }) {
   const [pendingSub, setPendingSub] = useState(null)
   const [busy, setBusy] = useState(false)
   const [showFab, setShowFab] = useState(false)
+  const [explainSession, setExplainSession] = useState(null)
   const scrollRef = useRef(null)
   const taRef = useRef(null)
   const stickBottom = useRef(true)
@@ -140,8 +142,13 @@ export default function ChatView({ onRequestOps }) {
               onDecide={decide}
               onChoose={choose}
               onRequestOps={onRequestOps}
+              onWhy={setExplainSession}
             />
           ))}
+
+          {explainSession && (
+            <ExplainDrawer sessionId={explainSession} onClose={() => setExplainSession(null)} />
+          )}
         </div>
       </div>
 
@@ -180,7 +187,7 @@ export default function ChatView({ onRequestOps }) {
 
 /* ------------------------------------------------ view-item renderer */
 
-function ViewItem({ item, busy, onDecide, onChoose, onRequestOps }) {
+function ViewItem({ item, busy, onDecide, onChoose, onRequestOps, onWhy }) {
   switch (item.kind) {
     case 'user':
       return <MessageBubble role="user" content={item.text} />
@@ -196,13 +203,13 @@ function ViewItem({ item, busy, onDecide, onChoose, onRequestOps }) {
         </details>
       )
     case 'order':
-      return <OrderReady item={item} busy={busy} onDecide={onDecide} onRequestOps={onRequestOps} />
+      return <OrderReady item={item} busy={busy} onDecide={onDecide} onRequestOps={onRequestOps} onWhy={onWhy} />
     case 'swap':
       return <SwapOffer item={item} busy={busy} onChoose={onChoose} />
     case 'payment':
       return <PaymentSlot ev={item.ev} />
     case 'caption':
-      return <Caption item={item} onRequestOps={onRequestOps} />
+      return <Caption item={item} onRequestOps={onRequestOps} onWhy={onWhy} />
     case 'error':
       return <div className="alert-line anim-in">⚠ {item.text}</div>
     default:
@@ -235,8 +242,11 @@ function OrderReady({ item, busy, onDecide, onRequestOps }) {
           )}
           <div className="total-line"><span>Total</span><span>₹{t.total}</span></div>
           <div className="why-row">
-            <button className="why-link" onClick={() => onRequestOps?.(ev.checkout_session_id)}>
-              <Eye size={12} /> Why these items?
+            <button className="why-link" onClick={() => onWhy?.(ev.checkout_session_id)}>
+              <Eye size={12} /> Why this total?
+            </button>
+            <button className="why-link" style={{ marginLeft: 14 }} onClick={() => onRequestOps?.(ev.checkout_session_id)}>
+              <Eye size={12} /> Full trail
             </button>
           </div>
           <QuickReplyChips
@@ -287,6 +297,31 @@ function SwapOffer({ item, busy, onChoose }) {
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ---------------------------------------------- humanized caption */
+
+function Caption({ item, onRequestOps, onWhy }) {
+  const { text, csid, payment } = item
+  const explainable = /couldn|pending|cancelled/i.test(text)
+  return (
+    <div className="caption">
+      {text}
+      {csid && /paid/i.test(text) && (
+        <>
+          {' · '}
+          <button className="why-link" onClick={() => onRequestOps?.(csid)}>view trail</button>
+        </>
+      )}
+      {csid && explainable && (
+        <>
+          {' · '}
+          <button className="why-link" onClick={() => onWhy?.(csid)}>what happened?</button>
+        </>
+      )}
+      {payment?.saved_card && <> · 💳 {payment.saved_card.network} ••••{payment.saved_card.last4}</>}
     </div>
   )
 }

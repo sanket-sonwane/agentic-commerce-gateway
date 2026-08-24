@@ -30,6 +30,14 @@ export default function App() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
+  // ExplainDrawer "Open full audit trail" deep-link
+  useEffect(() => {
+    const handler = e => openOps(e.detail || null)
+    window.addEventListener('acg:open-ops', handler)
+    return () => window.removeEventListener('acg:open-ops', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function openOps(sessionId = null) {
     setFocusSession(sessionId)
     setOpsOpen(true)
