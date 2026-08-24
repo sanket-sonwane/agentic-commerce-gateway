@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { SendHorizontal, ArrowDown, Soup, Croissant, ShoppingBasket, Eye } from 'lucide-react'
 import { streamSSE } from '../api.js'
 import { toViewItems, orderTitle } from '../utils/events.js'
@@ -6,12 +6,12 @@ import MessageBubble from '../components/MessageBubble.jsx'
 import WorkingShimmer from '../components/WorkingShimmer.jsx'
 import QuickReplyChips from '../components/QuickReplyChips.jsx'
 import PaymentCard from '../components/PaymentCard.jsx'
-import ExplainDrawer from '../components/ExplainDrawer.jsx'
+import MoneyStoryDrawer from '../components/MoneyStoryDrawer.jsx'
 
 const SUGGESTIONS = [
-  { icon: Soup, text: 'Buy ingredients for chicken biryani for four people under ₹800' },
-  { icon: Croissant, text: 'Get milk, bread and eggs for under ₹300' },
-  { icon: ShoppingBasket, text: 'Order pasta dinner ingredients under ₹600' },
+  { icon: Soup, text: 'Buy ingredients for chicken biryani for four people under â‚¹800' },
+  { icon: Croissant, text: 'Get milk, bread and eggs for under â‚¹300' },
+  { icon: ShoppingBasket, text: 'Order pasta dinner ingredients under â‚¹600' },
 ]
 
 export default function ChatView({ onRequestOps }) {
@@ -94,7 +94,7 @@ export default function ChatView({ onRequestOps }) {
     setEvents(prev => [
       ...prev,
       { type: 'status', checkout_session_id: s.checkout_session_id, status: s.status, payment: s.payment, time: Date.now() },
-      { type: 'message', content: `✅ Order placed! You paid **₹${s.totals.total}**.`, time: Date.now() },
+      { type: 'message', content: `âœ… Order placed! You paid **â‚¹${s.totals.total}**.`, time: Date.now() },
     ])
   }
 
@@ -120,7 +120,7 @@ export default function ChatView({ onRequestOps }) {
               <div className="hero">
                 <div className="hero-mark"><ShoppingBasket size={26} /></div>
                 <h2>Groceries, ordered by AI.</h2>
-                <p>Just say what you need — your agent shops, you approve the bill.</p>
+                <p>Just say what you need â€” your agent shops, you approve the bill.</p>
                 <div className="sugg-grid">
                   {SUGGESTIONS.map(s => (
                     <button key={s.text} className="sugg-card" onClick={() => send(s.text)}>
@@ -130,7 +130,7 @@ export default function ChatView({ onRequestOps }) {
                   ))}
                 </div>
               </div>
-              <div className="trust-line">Every order needs your approval · money only moves after you pay</div>
+              <div className="trust-line">Every order needs your approval Â· money only moves after you pay</div>
             </>
           ) : null}
 
@@ -147,7 +147,7 @@ export default function ChatView({ onRequestOps }) {
           ))}
 
           {explainSession && (
-            <ExplainDrawer sessionId={explainSession} onClose={() => setExplainSession(null)} />
+            <MoneyStoryDrawer sessionId={explainSession} onClose={() => setExplainSession(null)} />
           )}
         </div>
       </div>
@@ -159,13 +159,13 @@ export default function ChatView({ onRequestOps }) {
       )}
 
       <div className="input-dock-wrap">
-        {blockedReason && !busy && <div className="blocked-hint">↑ {blockedReason}</div>}
+        {blockedReason && !busy && <div className="blocked-hint">â†‘ {blockedReason}</div>}
         <div className="input-dock">
           <textarea
             ref={taRef}
             rows={1}
             value={input}
-            placeholder={blockedReason ? blockedReason + '…' : 'What would you like to order?'}
+            placeholder={blockedReason ? blockedReason + 'â€¦' : 'What would you like to order?'}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -211,7 +211,7 @@ function ViewItem({ item, busy, onDecide, onChoose, onRequestOps, onWhy }) {
     case 'caption':
       return <Caption item={item} onRequestOps={onRequestOps} onWhy={onWhy} />
     case 'error':
-      return <div className="alert-line anim-in">⚠ {item.text}</div>
+      return <div className="alert-line anim-in">âš  {item.text}</div>
     default:
       return null
   }
@@ -232,15 +232,15 @@ function OrderReady({ item, busy, onDecide, onRequestOps }) {
           <ul className="items">
             {items.map(li => (
               <li key={li.pack_id}>
-                <span><b>{li.name}</b>{li.quantity > 1 ? ` ×${li.quantity}` : ''}</span>
-                <span>₹{li.unit_price * li.quantity}</span>
+                <span><b>{li.name}</b>{li.quantity > 1 ? ` Ã—${li.quantity}` : ''}</span>
+                <span>â‚¹{li.unit_price * li.quantity}</span>
               </li>
             ))}
           </ul>
           {!!t.shipping && (
-            <div className="items"><li style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}><span>Delivery</span><span>₹{t.shipping}</span></li></div>
+            <div className="items"><li style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}><span>Delivery</span><span>â‚¹{t.shipping}</span></li></div>
           )}
-          <div className="total-line"><span>Total</span><span>₹{t.total}</span></div>
+          <div className="total-line"><span>Total</span><span>â‚¹{t.total}</span></div>
           <div className="why-row">
             <button className="why-link" onClick={() => onWhy?.(ev.checkout_session_id)}>
               <Eye size={12} /> Why this total?
@@ -251,14 +251,14 @@ function OrderReady({ item, busy, onDecide, onRequestOps }) {
           </div>
           <QuickReplyChips
             choices={[
-              { value: 'approved', label: `✓ Place order · ₹${t.total}`, tone: 'primary', onClick: () => onDecide(true), pickedLabel: '✓ Ordered' },
+              { value: 'approved', label: `âœ“ Place order Â· â‚¹${t.total}`, tone: 'primary', onClick: () => onDecide(true), pickedLabel: 'âœ“ Ordered' },
               { value: 'cancelled', label: 'Cancel', tone: 'danger', onClick: () => onDecide(false), pickedLabel: 'Cancelled' },
             ]}
             disabled={busy}
             resolved={resolved}
           />
         </div>
-        <div className="msg-meta">{orderTitle(items)} · needs your approval</div>
+        <div className="msg-meta">{orderTitle(items)} Â· needs your approval</div>
       </div>
     </div>
   )
@@ -281,14 +281,14 @@ function SwapOffer({ item, busy, onChoose }) {
           </p>
           <div className="swap-line">
             <span className="swap-old">{orig.pack_id?.replace('pack_', '')}</span>
-            <span className="swap-arrow">→</span>
-            <b>{prop.name} {prop.size}{prop.unit} ×{prop.quantity}</b>
-            <span>₹{prop.line_total ?? prop.price}</span>
-            {save > 0 && <span className="save-badge">save ₹{save}</span>}
+            <span className="swap-arrow">â†’</span>
+            <b>{prop.name} {prop.size}{prop.unit} Ã—{prop.quantity}</b>
+            <span>â‚¹{prop.line_total ?? prop.price}</span>
+            {save > 0 && <span className="save-badge">save â‚¹{save}</span>}
           </div>
           <QuickReplyChips
             choices={[
-              { value: 'chosen', label: '✓ Take it', tone: 'primary', onClick: () => onChoose(0), pickedLabel: '✓ Taken' },
+              { value: 'chosen', label: 'âœ“ Take it', tone: 'primary', onClick: () => onChoose(0), pickedLabel: 'âœ“ Taken' },
               { value: 'other', label: 'Other options', onClick: () => onChoose('other'), pickedLabel: 'Skipped' },
               { value: 'cancelled', label: 'Cancel', tone: 'danger', onClick: () => onChoose('cancel'), pickedLabel: 'Cancelled' },
             ]}
@@ -312,17 +312,17 @@ function Caption({ item, onRequestOps, onWhy }) {
       {text}
       {csid && paid && (
         <>
-          {' · '}
+          {' Â· '}
           <button className="why-link" onClick={() => onRequestOps?.(csid)}>view trail</button>
         </>
       )}
       {csid && explainable && (
         <>
-          {' · '}
+          {' Â· '}
           <button className="why-link" onClick={() => onWhy?.(csid)}>what happened?</button>
         </>
       )}
-      {payment?.saved_card && <> · 💳 {payment.saved_card.network} ••••{payment.saved_card.last4}</>}
+      {payment?.saved_card && <> Â· ðŸ’³ {payment.saved_card.network} â€¢â€¢â€¢â€¢{payment.saved_card.last4}</>}
     </div>
   )
 }
@@ -347,3 +347,4 @@ function Basket() {
 function PaymentSlot({ ev }) {
   return <div style={{ marginLeft: 38, marginTop: 4 }}><PaymentCard redirect={ev} /></div>
 }
+
