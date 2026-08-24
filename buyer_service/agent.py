@@ -6,6 +6,7 @@ Flow ownership:
     Merchant   -> validation, gating, money movement (always deterministic)
 """
 import json
+import re
 import uuid
 from collections.abc import Generator
 from typing import Any
@@ -19,6 +20,11 @@ BILL_PAUSE = "__BILL_PAUSE__"
 # A candidate substitutes a declined item only if it serves the same role:
 # same category, or shares a dietary-role tag (protein etc.).
 ROLE_TAGS = {"protein"}
+
+# Model-compat: some NIM models occasionally leak their tool-call template
+# into plain text instead of emitting structured tool_calls (NIM docs:
+# "function call present in the content field"). Detect and retry.
+_LEAKED_TOOLCALL_RE = re.compile(r"<\|?(?:tool_call|eom_id)|call:\s*\w+\s*\{", re.IGNORECASE)
 
 
 def _client():
@@ -45,6 +51,11 @@ def _summarize_args(name: str, args: dict) -> str:
         return f"creating checkout with {n} item(s)"
     if name == "cancel_checkout_session":
         return f"cancelling {args.get('checkout_session_id', '')}"
+    if name == "purchase_via_merchant_agent":
+        return f"negotiating purchase with merchant agent: “{str(args.get('request_text', ''))[:60]}”"
+    if name == "respond_to_merchant_proposal":
+        verdict = "accepting" if args.get("accept") else "rejecting"
+        return f"{verdict} the merchant's proposal"
     return name
 
 
@@ -167,12 +178,123 @@ class BuyerAgent:
 
         return {"error": f"unknown tool {name}"}
 
+    # ------------------------------------------- merchant-agent negotiation
+
+    def _map_agent_result(self, conv, payload: dict) -> dict:
+        """Translate a Merchant Agent session payload into an LLM-visible
+        result. When the merchant basket is ready, stash bill data for the
+        deterministic pause (the LLM never triggers payment)."""
+        status = payload.get("status")
+        conv.active_agent_session_id = payload.get("agent_session_id")
+
+        if status == "completed":
+            outcome = payload.get("outcome") or {}
+            conv.active_session_id = None
+            conv.active_agent_session_id = None
+            return {
+                "fulfilled": True,
+                "reason_code": outcome.get("reason_code"),
+                "message": outcome.get("message", ""),
+                "total": outcome.get("total"),
+                "payment_id": (outcome.get("payment") or {}).get("payment_id"),
+                "instruction": "The order is PAID and placed. Tell the user it succeeded with the total.",
+            }
+
+        if status == "ready_for_completion":
+            cs = payload.get("checkout_session") or {}
+            csid = cs.get("checkout_session_id") or payload.get("checkout_session_id")
+            if not csid:
+                return {"error": "merchant returned no checkout session"}
+            conv.active_session_id = csid
+            outcome = payload.get("outcome") or {}
+            note = outcome.get("message") or ""
+            return {
+                "bill_ready": True,
+                "note": note,
+                "session": {
+                    "checkout_session_id": csid,
+                    "line_items": cs.get("line_items", []),
+                    "totals": cs.get("totals", {}),
+                },
+            }
+
+        if status == "awaiting_buyer_confirmation":
+            proposal = payload.get("proposal") or {}
+            prop = proposal.get("proposal") or {}
+            orig = proposal.get("original") or {}
+            return {
+                "awaiting_proposal_decision": True,
+                "agent_session_id": payload.get("agent_session_id"),
+                "reason_code": proposal.get("reason_code"),
+                "message_from_merchant": proposal.get("message", ""),
+                "requested": orig,
+                "proposed": {
+                    k: prop.get(k)
+                    for k in ("product_id", "pack_id", "name", "size", "unit", "quantity", "price", "line_total")
+                },
+                "instruction": (
+                    "The MERCHANT proposes this substitution. Decide whether it satisfies the "
+                    "USER'S ORIGINAL INTENT (same item/role, sensible quantity). If acceptable, "
+                    "call respond_to_merchant_proposal with accept=true; otherwise reject with a "
+                    "short reason."
+                ),
+            }
+
+        # declined | unable_to_fulfill | awaiting_payment_authorization
+        outcome = payload.get("outcome") or {}
+        return {
+            "fulfilled": False,
+            "status": status,
+            "reason_code": outcome.get("reason_code"),
+            "message": outcome.get("message", ""),
+            "instruction": (
+                "Explain the outcome to the user in one short line. Do NOT retry the same "
+                "request automatically."
+            ),
+        }
+
+    def _execute_agent_tools(self, conv, name: str, args: dict) -> dict[str, Any]:
+        if name == "purchase_via_merchant_agent":
+            request_text = str(args.get("request_text", "")).strip()
+            if not request_text:
+                request_text = conv.last_query or ""
+            if not request_text:
+                return {"error": "request_text is required"}
+            items = _coerce_items(args.get("items")) or None
+            try:
+                status, payload = self.merchant.start_agent_session(request_text, requested_items=items)
+            except Exception as exc:  # noqa: BLE001 — transport failure is not a decline
+                return {"error": f"merchant agent unreachable: {exc}"}
+            if status != 201:
+                err = payload.get("error", {}) if isinstance(payload, dict) else {}
+                return {"error": err.get("message", f"merchant agent failed ({status})")}
+            return self._map_agent_result(conv, payload)
+
+        if name == "respond_to_merchant_proposal":
+            sid = conv.active_agent_session_id
+            if not sid:
+                return {"error": "no merchant agent negotiation in progress"}
+            accept = bool(args.get("accept"))
+            reason = str(args.get("reason", ""))[:200]
+            try:
+                status, payload = self.merchant.respond_proposal(sid, "accept" if accept else "reject", reason)
+            except Exception as exc:  # noqa: BLE001
+                return {"error": f"merchant agent unreachable: {exc}"}
+            if status != 200:
+                detail = payload.get("detail") or payload.get("error", {}).get("message", "")
+                return {"error": str(detail) or f"decision failed ({status})"}
+            return self._map_agent_result(conv, payload)
+
+        return {"error": f"unknown tool {name}"}
+
     # -------------------------------------------------- LLM loop
 
     def llm_loop(self, conv, instruction: str) -> Generator[dict, None, None]:
         """Run the NIM tool-loop. Yields events; pauses on a created checkout."""
         conv.llm_history.append({"role": "user", "content": instruction})
         messages = [{"role": "system", "content": SYSTEM_PROMPT}, *conv.llm_history]
+        leaked_replies = 0
+        ungrounded_nudges = 0
 
         for _ in range(settings.max_agent_iterations):
             try:
@@ -193,7 +315,7 @@ class BuyerAgent:
                 messages.append(
                     {
                         "role": "assistant",
-                        "content": msg.content or "",
+                        "content": (msg.content or "").strip() or None,  # model-compat: "" rejected by some NIM endpoints
                         "tool_calls": [
                             {
                                 "id": tc.id,
@@ -216,8 +338,28 @@ class BuyerAgent:
                         f"TOOL {name} ARGS({len(tc.function.arguments or '')}): {(tc.function.arguments or '')[:400]}\n"
                     )
                     yield {"type": "tool", "tool": name, "summary": _summarize_args(name, args), "ok": True}
-                    result = self._execute_tool(conv, name, args)
+                    if name in ("discover_products", "create_checkout_session", "cancel_checkout_session"):
+                        result = self._execute_tool(conv, name, args)
+                    else:
+                        result = self._execute_agent_tools(conv, name, args)
                     yield from self._post_tool_events(conv, name, result)
+                    if result.get("bill_ready"):
+                        # Merchant basket is policy-approved; deterministic gate shows the bill.
+                        yield self.present_bill(
+                            conv,
+                            result["session"],
+                            note=result.get("note") or None,
+                        )
+                        conv.llm_history = messages[1:]
+                        conv.llm_history.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": json.dumps({"bill_presented": True}),
+                            }
+                        )
+                        yield BILL_PAUSE
+                        return
                     if result.get("created") is True:
                         # Deterministic gate: show the bill, park the loop.
                         session_like = {
@@ -241,7 +383,42 @@ class BuyerAgent:
 
             # No tool calls -> final assistant message for this turn.
             content = (msg.content or "").strip()
-            conv.llm_history.append({"role": "assistant", "content": content})
+
+            if _LEAKED_TOOLCALL_RE.search(content) and leaked_replies < 2:
+                leaked_replies += 1
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your last reply was not a valid tool call. Respond ONLY by calling one of "
+                            "the provided tools (proper tool_calls), never by writing call-syntax as text."
+                        ),
+                    }
+                )
+                continue
+
+            # F3: never answer availability questions from memory — force one
+            # discovery observation before any catalog claim.
+            has_observation = any(m.get("role") == "tool" for m in messages)
+            if (
+                not has_observation
+                and ungrounded_nudges < 1
+                and len(instruction.split()) >= 3
+            ):
+                ungrounded_nudges += 1
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Do NOT answer from memory or guess what the merchant stocks. Call "
+                            "discover_products first with the item or category, then answer only "
+                            "from its result."
+                        ),
+                    }
+                )
+                continue
+
+            conv.llm_history.append({"role": "assistant", "content": content or None})
             yield {"type": "message", "content": content}
             return
 
@@ -313,8 +490,6 @@ class BuyerAgent:
                 driver = pay.get("driver")
                 if saved:
                     how = f"using your saved {saved.get('network') or 'card'} ••••{saved.get('last4')}"
-                elif driver == "sim":
-                    how = "(test-mode simulation)"
                 else:
                     how = "via Razorpay"
                 yield {

@@ -212,3 +212,46 @@ class AuditVerifyResponse(BaseModel):
     intact: bool
     entries_checked: int
     first_broken_seq: Optional[int] = None
+
+
+# ---------- merchant agent (PRD §9–14, §19) ----------
+
+
+class AgentSessionCreate(BaseModel):
+    buyer_request: str = Field(min_length=1)
+    buyer_agent_id: str
+    delegation_token: str
+    execution_mode: str = Field(
+        default="buyer_completes",
+        description="buyer_completes: buyer triggers payment via protocol | agent_completed: agent runs the gated completion",
+    )
+    requested_items: list[LineItemIn] = Field(default_factory=list)
+    brain: Optional[str] = Field(
+        default=None,
+        description="Optional per-session brain override: 'llm' | 'fallback' (defaults to MA_LLM_BRAIN)",
+    )
+
+
+class AgentDecisionRequest(BaseModel):
+    decision: str = Field(description="accept | reject")
+    note: str = ""
+
+
+class AgentSessionOut(BaseModel):
+    agent_session_id: str
+    status: str
+    buyer_request: str
+    execution_mode: str
+    requested_items: list[dict[str, Any]] = []
+    current_items: list[dict[str, Any]] = []
+    checkout_session_id: Optional[str] = None
+    proposal: Optional[dict[str, Any]] = None
+    outcome: Optional[dict[str, Any]] = None
+    checkout_session: Optional[dict[str, Any]] = None
+    iterations: int = 0
+    tool_calls: int = 0
+
+
+class AgentTraceResponse(BaseModel):
+    agent_session_id: str
+    events: list[AuditEventOut] = []

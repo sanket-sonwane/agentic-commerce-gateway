@@ -9,9 +9,15 @@ import pytest
 TEST_DB = os.path.join(tempfile.gettempdir(), "acg_test_merchant.db")
 os.environ["MERCHANT_DB_PATH"] = TEST_DB
 os.environ.setdefault("PAYMENT_DRIVER", "sim")
+# Simulated payments are a pytest-only fixture: this flag unlocks the
+# credential-less hermetic paths that production refuses (config validator +
+# payment_service gates). Never set this in a real deployment.
+os.environ["ACG_TEST_ALLOW_SIM"] = "1"
 # Keep the suite hermetic: never call the real Razorpay API from tests.
 os.environ["RAZORPAY_KEY_ID"] = ""
 os.environ["RAZORPAY_KEY_SECRET"] = ""
+# Merchant Agent tests use the deterministic fallback brain (no live NIM calls).
+os.environ["MA_LLM_BRAIN"] = "false"
 
 ROOT = Path(__file__).resolve().parents[2]
 

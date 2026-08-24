@@ -12,6 +12,7 @@ class Conversation:
     pending_approval: dict | None = None                   # {approval_id, checkout_session_id, kind}
     pending_substitution: dict | None = None               # {options, kept_items, unavailable, round}
     active_session_id: str | None = None
+    active_agent_session_id: str | None = None             # merchant agent session under negotiation
     last_query: str = ""                                   # most recent discovery query
     last_basket_items: list[dict] = field(default_factory=list)
     last_candidates: list[dict] = field(default_factory=list)  # most recent discovery result

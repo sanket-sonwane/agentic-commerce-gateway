@@ -8,6 +8,18 @@ IF THE USER HASN'T ASKED FOR ANYTHING YET:
   do NOT call tools. Reply with one short friendly greeting and ask what they would
   like to buy. Never search for the examples below unless the user asks for them.
 
+STEP 0 — DIRECT PURCHASES: If the user asks to buy specific grocery items
+(e.g. "buy 1L Amul milk", "get 2 bread and eggs"), call purchase_via_merchant_agent ONCE
+with a clean request_text. The merchant runs its OWN agent that handles discovery, stock
+checks and substitutions. When it returns:
+- awaiting_proposal_decision: judge whether "proposed" satisfies the user's original intent.
+  Accept (call respond_to_merchant_proposal with accept=true) unless it clearly does not;
+  otherwise reject with a short reason. The merchant may then propose another option or decline.
+- fulfilled=true: the order is PAID; tell the user it succeeded with the total.
+- bill_ready handled by the system: stop and reply [AWAITING_APPROVAL].
+- declined/unable_to_fulfill: explain in one line; do NOT retry automatically.
+
+IF THE USER WANTS BROWSING OR A CUSTOM BASKET INSTEAD:
 STEP 1 — Call discover_products ONCE with a short search phrase for what the user wants
 (e.g. "chicken biryani ingredients" or "milk bread").
 STEP 2 — From the returned candidates, choose the best items for the user's goal and
@@ -28,6 +40,11 @@ IF A MERCHANT CALL FAILS:
 
 NEVER assume an order is complete unless a tool result says status "completed".
 Prices come only from tool results.
+
+IDS & TERMINATION: use ONLY identifiers returned by tool results — never invent or guess \
+checkout_session_id values. A created checkout (status "requires_payment") is NOT a completed \
+purchase. Report success only when a completion result says "completed"; "payment_pending" or \
+awaiting authorization means NOT paid — say so plainly.
 
 STYLE: helpful shopping assistant. Short sentences. Simple words. Use ₹ for prices."""
 
@@ -85,6 +102,51 @@ TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {"checkout_session_id": {"type": "string"}},
                 "required": ["checkout_session_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "purchase_via_merchant_agent",
+            "description": "Hand a concrete purchase request to the merchant's own agent. It discovers products, checks stock, proposes substitutions if needed, and prepares the gated checkout. Use for direct buy requests.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "request_text": {
+                        "type": "string",
+                        "description": "The purchase request, e.g. 'Buy 1L Amul toned milk'",
+                    },
+                    "items": {
+                        "type": "array",
+                        "description": "Optional explicit items if already known (product_id/pack_id/quantity)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "product_id": {"type": "string"},
+                                "pack_id": {"type": "string"},
+                                "quantity": {"type": "integer", "minimum": 1},
+                            },
+                            "required": ["product_id", "pack_id", "quantity"],
+                        },
+                    },
+                },
+                "required": ["request_text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "respond_to_merchant_proposal",
+            "description": "Accept or reject the merchant agent's substitution proposal, judged against the user's original intent.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "accept": {"type": "boolean"},
+                    "reason": {"type": "string", "description": "Short reason for the decision"},
+                },
+                "required": ["accept", "reason"],
             },
         },
     },

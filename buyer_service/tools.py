@@ -111,12 +111,37 @@ class MerchantClient:
         return r.status_code, r.json()
 
     def reconcile(self, checkout_session_id: str) -> tuple[int, dict]:
-        r = httpx.post(f"{self.base}/checkout_sessions/{checkout_session_id}/reconcile", timeout=30)
-        return r.status_code, r.json()
-
-    def reconcile(self, checkout_session_id: str) -> tuple[int, dict]:
         r = httpx.post(
             f"{self.base}/checkout_sessions/{checkout_session_id}/reconcile",
             timeout=30,
+        )
+        return r.status_code, r.json()
+
+    # ---------------- Merchant Agent (agent-to-agent protocol) ----------------
+
+    def start_agent_session(self, buyer_request: str, requested_items: list[dict] | None = None) -> tuple[int, dict]:
+        """Hand the request to the Merchant Agent; it runs its own loop and
+        returns paused/completed/declined outcomes (may take ~60s)."""
+        body = {
+            "buyer_request": buyer_request,
+            "buyer_agent_id": settings.buyer_agent_id,
+            "delegation_token": settings.delegation_token,
+            "execution_mode": "buyer_completes",
+        }
+        if requested_items:
+            body["requested_items"] = requested_items
+        r = httpx.post(f"{self.base}/agent_sessions", json=body, timeout=150)
+        return r.status_code, r.json()
+
+    def get_agent_session(self, agent_session_id: str) -> tuple[int, dict]:
+        r = httpx.get(f"{self.base}/agent_sessions/{agent_session_id}", timeout=30)
+        return r.status_code, r.json()
+
+    def respond_proposal(self, agent_session_id: str, decision: str, note: str = "") -> tuple[int, dict]:
+        """Answer a merchant proposal: decision is 'accept' or 'reject'."""
+        r = httpx.post(
+            f"{self.base}/agent_sessions/{agent_session_id}/decision",
+            json={"decision": decision, "note": note},
+            timeout=150,
         )
         return r.status_code, r.json()

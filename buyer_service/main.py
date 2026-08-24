@@ -134,6 +134,11 @@ def chat(body: ChatRequest):
     if conv is None:
         conv = new_conversation()
         conv.emit({"type": "conversation_started", "conversation_id": conv.id})
+    # F2: canned smalltalk only for fresh conversations — mid-chat acks
+    # ("ok", "nice") must reach the agent, never a template.
+    has_prior_exchange = any(
+        e.get("type") not in ("conversation_started", "user_message") for e in conv.events
+    )
     with conv.lock:
         if conv.busy:
             raise HTTPException(status_code=409, detail="Agent is still working on the previous message.")
@@ -144,7 +149,7 @@ def chat(body: ChatRequest):
         conv.busy = True
     conv.emit({"type": "user_message", "content": body.message})
     prelude = [{"type": "conversation_started", "conversation_id": conv.id}]
-    if _is_smalltalk(body.message):
+    if not has_prior_exchange and _is_smalltalk(body.message):
         return _stream(conv, _smalltalk_gen(body.message), prelude=prelude)
     return _stream(
         conv,

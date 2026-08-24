@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { adminFetch, merchantFetch } from '../api.js'
 import RazorpayPayCard from '../components/RazorpayPayCard.jsx'
+import MerchantAgentSection, { AgentTraceDetail } from '../components/MerchantAgentTrace.jsx'
 
 const RULE_LABELS = {
   spend_limit: 'Spend limit',
@@ -42,6 +43,8 @@ export default function OpsView() {
   const [sessions, setSessions] = useState([])
   const [selected, setSelected] = useState(null)
   const [opsStatus, setOpsStatus] = useState(null)
+  const [tab, setTab] = useState('tx')
+  const [agentSessionId, setAgentSessionId] = useState(null)
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -60,35 +63,55 @@ export default function OpsView() {
   return (
     <div className="ops-layout">
       <div className="ops-col">
-        <h3><ReceiptText size={13} /> Transactions</h3>
-        {opsStatus && (
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
-            driver <b style={{ color: 'var(--text)' }}>{opsStatus.payment_driver}</b> · razorpay{' '}
-            <b className={opsStatus.razorpay_credentials_present ? 'intact-yes' : 'intact-no'}>
-              {String(opsStatus.razorpay_credentials_present)}
-            </b>
-          </div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <button className={`mini-btn ${tab === 'tx' ? '' : ''}`} style={{ opacity: tab === 'tx' ? 1 : 0.5 }} onClick={() => { setTab('tx'); setSelected(null) }}>
+            Transactions
+          </button>
+          <button className={`mini-btn ${tab === 'agent' ? '' : ''}`} style={{ opacity: tab === 'agent' ? 1 : 0.5 }} onClick={() => { setTab('agent'); setAgentSessionId(null) }}>
+            Agent
+          </button>
+        </div>
+
+        {tab === 'tx' ? (
+          <>
+            <h3><ReceiptText size={13} /> Transactions</h3>
+            {opsStatus && (
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
+                driver <b style={{ color: 'var(--text)' }}>{opsStatus.payment_driver}</b> · razorpay{' '}
+                <b className={opsStatus.razorpay_credentials_present ? 'intact-yes' : 'intact-no'}>
+                  {String(opsStatus.razorpay_credentials_present)}
+                </b>
+              </div>
+            )}
+            {sessions.map(s => (
+              <div
+                key={s.checkout_session_id}
+                className={`session-item ${selected === s.checkout_session_id ? 'selected' : ''}`}
+                onClick={() => { setSelected(s.checkout_session_id); setAgentSessionId(null) }}
+              >
+                <div className="top">
+                  <span className="sid">{s.checkout_session_id}</span>
+                  <span className="amt">₹{s.total}</span>
+                </div>
+                <span className={`badge ${s.status}`}>{s.status.replace(/_/g, ' ')}</span>
+              </div>
+            ))}
+            {!sessions.length && <div className="sysline">No transactions yet — place an order in the Shop tab.</div>}
+          </>
+        ) : (
+          <MerchantAgentSection
+            selected={agentSessionId}
+            onSelect={(id) => { setAgentSessionId(id); setSelected(null) }}
+          />
         )}
-        {sessions.map(s => (
-          <div
-            key={s.checkout_session_id}
-            className={`session-item ${selected === s.checkout_session_id ? 'selected' : ''}`}
-            onClick={() => setSelected(s.checkout_session_id)}
-          >
-            <div className="top">
-              <span className="sid">{s.checkout_session_id}</span>
-              <span className="amt">₹{s.total}</span>
-            </div>
-            <span className={`badge ${s.status}`}>{s.status.replace(/_/g, ' ')}</span>
-          </div>
-        ))}
-        {!sessions.length && <div className="sysline">No transactions yet — place an order in the Shop tab.</div>}
+
         <h3><RotateCcw size={13} /> Danger zone</h3>
         <button
           className="mini-btn warn full"
           onClick={async () => {
             await adminFetch('/admin/demo/reset', { method: 'POST' })
             setSelected(null)
+            setAgentSessionId(null)
             refreshSessions()
           }}
         >
@@ -96,7 +119,9 @@ export default function OpsView() {
         </button>
       </div>
 
-      {selected ? (
+      {tab === 'agent' && agentSessionId ? (
+        <AgentTraceDetail agentSessionId={agentSessionId} />
+      ) : selected ? (
         <SessionDetail sessionId={selected} />
       ) : (
         <div

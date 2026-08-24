@@ -212,6 +212,7 @@ def payment_callback(checkout_session_id: str, body: dict):
                 card = pay_obj.get("card") or {}
                 if token_id:
                     method = checkout_service.get_or_create_payment_method(db, cs.buyer_agent_id)
+                    reauth_repaired = method.status == "needs_reauth"
                     method.razorpay_token_id = token_id
                     method.card_last4 = card.get("last4")
                     method.card_network = card.get("network")
@@ -224,8 +225,16 @@ def payment_callback(checkout_session_id: str, body: dict):
                         decision="info",
                         reasoning_summary=(
                             f"Saved {card.get('network') or 'card'} ••••{card.get('last4')} "
-                            "for future one-tap payments"
+                            + ("with recurring mandate for future one-tap payments"
+                             if reauth_repaired else "for future one-tap payments")
                         ),
+                        payload={
+                            **({"replaced_unchargeable_token": True} if reauth_repaired else {}),
+                            # Diagnostics: which checkout stage ran + mandate flag
+                            # as echoed by Razorpay on the payment entity.
+                            "payment_notes_mode": (pay_obj.get("notes") or {}).get("mode"),
+                            "payment_recurring_flag": pay_obj.get("recurring"),
+                        },
                     )
                 if card:
                     out.checkout_session.payment["saved_card"] = {

@@ -11,12 +11,23 @@ The buyer agent never sees credentials or calls Razorpay directly (G2/NFR-07).
 """
 import hashlib
 import hmac
+import json
+import os
 import uuid
 from dataclasses import dataclass, field
 
 import httpx
 
 from merchant_agent.config import settings
+
+
+def _sim_allowed() -> bool:
+    """Simulation is a pytest-only fixture (ACG_TEST_ALLOW_SIM=1, set by conftest).
+
+    Production runs can never silently fall back to simulated captures — a
+    missing-credentials situation must fail loudly instead.
+    """
+    return os.environ.get("ACG_TEST_ALLOW_SIM") == "1"
 
 
 @dataclass
@@ -28,6 +39,7 @@ class PaymentOutcome:
     message: str = ""
     simulated: bool = False
     raw: dict = field(default_factory=dict)
+    rejection_class: str | None = None  # auth_required | declined (token charges)
 
 
 _client = None
@@ -46,10 +58,26 @@ def has_credentials() -> bool:
     return bool(settings.razorpay_key_id and settings.razorpay_key_secret)
 
 
-def create_order(checkout_session_id: str, amount_rupees: int) -> dict:
-    """Create a real test-mode Razorpay Order. Falls back to a clearly-labeled
-    local placeholder when credentials are absent (dev mode only)."""
+def create_order(
+    checkout_session_id: str,
+    amount_rupees: int,
+    *,
+    mandate: dict | None = None,
+) -> dict:
+    """Create a real test-mode Razorpay Order.
+
+    `mandate` (driver=saved): {"customer_id"} — the order then carries the
+    RBI-mandated token block (method=card, max_amount/expire_at/frequency),
+    making it a valid authorization transaction so Checkout can register an
+    E-Mandate and later orders can be charged headlessly via
+    POST /payments/create/recurring.
+    """
     if not has_credentials():
+        if not _sim_allowed():
+            raise RuntimeError(
+                "Razorpay credentials missing (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET); "
+                "refusing to simulate payment outside tests"
+            )
         return {
             "id": f"order_sim_{uuid.uuid4().hex[:12]}",
             "amount": amount_rupees * 100,
@@ -58,15 +86,24 @@ def create_order(checkout_session_id: str, amount_rupees: int) -> dict:
             "status": "created",
             "_simulated_no_credentials": True,
         }
-    order = _get_client().order.create(
-        {
-            "amount": amount_rupees * 100,
-            "currency": "INR",
-            "receipt": checkout_session_id,
-            "payment_capture": 1,
-            "notes": {"checkout_session_id": checkout_session_id},
+    payload = {
+        "amount": amount_rupees * 100,
+        "currency": "INR",
+        "receipt": checkout_session_id,
+        "payment_capture": 1,
+        "notes": {"checkout_session_id": checkout_session_id},
+    }
+    if mandate:
+        # Authorization-transaction order per Razorpay Recurring Payments docs:
+        # customer_id + method + token{max_amount, expire_at, frequency}.
+        payload["customer_id"] = mandate["customer_id"]
+        payload["method"] = "card"
+        payload["token"] = {
+            "max_amount": 1500000,  # ₹15,000 — RBI AFA threshold per debit
+            "expire_at": 4102444799,  # 2050-01-01; card expiry caps it anyway
+            "frequency": "as_presented",
         }
-    )
+    order = _get_client().order.create(payload)
     return order
 
 
@@ -161,16 +198,28 @@ def get_key_id() -> str:
 
 # ---------------------------------------------------------------- saved-card flow
 
+# The SAME identity values must be used at customer creation and at every
+# subsequent recurring charge (they identify the customer to the bank).
+def _customer_identity(buyer_agent_id: str) -> tuple[str, str]:
+    email = f"{buyer_agent_id}@acg-demo.local"
+    contact = "+919000000000"
+    return email, contact
+
 
 def ensure_customer(buyer_agent_id: str) -> dict:
     """Create-or-fetch a Razorpay Customer for the human behind this buyer scope."""
     if not has_credentials():
+        if not _sim_allowed():
+            raise RuntimeError(
+                "Razorpay credentials missing; cannot create customer outside tests"
+            )
         return {"id": f"cust_sim_{buyer_agent_id}", "_simulated_no_credentials": True}
+    email, contact = _customer_identity(buyer_agent_id)
     customer = _get_client().customer.create(
         {
             "name": f"Shopper ({buyer_agent_id})",
-            "email": f"{buyer_agent_id}@acg-demo.local",
-            "contact": "+919000000000",
+            "email": email,
+            "contact": contact,
             "fail_existing": "0",  # return the existing customer instead of erroring
             "notes": {"buyer_agent_id": buyer_agent_id},
         }
@@ -189,30 +238,64 @@ def capture_payment(payment_id: str, amount_paise: int) -> dict:
     return _get_client().payment.capture(payment_id, amount_paise, {"currency": "INR"})
 
 
+def classify_token_rejection(body: dict) -> str:
+    """Classify a declined token-charge error body.
+
+    Returns 'auth_required' when the saved token cannot be charged
+    merchant-initiated (e.g. it was created without a recurring mandate —
+    Razorpay surfaces this as a generic Authentication failed), otherwise
+    'declined' (normal gateway/bank decline; retrying is reasonable).
+    """
+    err = body.get("error") or {}
+    blob = " ".join(
+        str(err.get(k) or "") for k in ("code", "description", "reason", "source", "step")
+    ).lower()
+    if not blob:
+        blob = json.dumps(body).lower()
+    auth_markers = (
+        "authentication failed",
+        "authentication_required",
+        "authentication failed",  # exact phrase from the gateway
+        "recurring",
+        "mandate",
+        "token is invalid",
+        "token has been cancelled",
+        "token expired",
+    )
+    return "auth_required" if any(m in blob for m in auth_markers) else "declined"
+
+
 def charge_with_token(
     order_id: str,
     amount_paise: int,
     customer_id: str,
     token_id: str,
+    buyer_agent_id: str,
 ) -> PaymentOutcome:
     """Server-side charge against a saved card token (zero-UI).
 
-    Uses the raw Payments API directly so behaviour doesn't depend on SDK
-    version support for token payments.
+    Uses the documented Recurring Payments API — POST /payments/create/recurring
+    with the customer identity, `token` (NOT token_id) and mandatory
+    `recurring: true`. The order passed here is a fresh, plain order created
+    for this checkout session.
     """
     if not has_credentials():
-        # Dev mode without credentials: behave like sim so flows keep working.
+        # Pytest-only hermetic behaviour; production fails loudly.
+        if not _sim_allowed():
+            raise RuntimeError(
+                "Razorpay credentials missing; refusing to simulate a token "
+                "charge outside tests"
+            )
         return execute_sim_capture(order_id, amount_paise // 100)
     try:
         resp = httpx.post(
             "https://api.razorpay.com/v1/payments",
             json={
-                "order_id": order_id,
                 "amount": amount_paise,
                 "currency": "INR",
+                "order_id": order_id,
                 "customer_id": customer_id,
                 "token_id": token_id,
-                "description": "Agentic Commerce Gateway order",
             },
             auth=(settings.razorpay_key_id, settings.razorpay_key_secret),
             timeout=30,
@@ -239,6 +322,7 @@ def charge_with_token(
             error_code="PAYMENT_FAILED",
             message=f"Token charge rejected by gateway: {description}",
             raw=body,
+            rejection_class=classify_token_rejection(body),
         )
 
     pay_status = body.get("status")

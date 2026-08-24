@@ -36,6 +36,48 @@ production ACP compliance.
 | GET | `/audit_logs?checkout_session_id=` | Append-only audit events |
 | GET | `/audit_logs/verify` | Hash-chain integrity verification |
 | GET | `/explain/{id}` | Human-readable explanation from audit facts |
+| POST | `/agent_sessions` | Run the Merchant Agent on a buyer request (observe→reason→act→adapt) |
+| GET | `/agent_sessions/{id}` | Agent session view: status, pending proposal, outcome |
+| POST | `/agent_sessions/{id}/decision` | Buyer `accept`\|`reject` of a structured proposal; agent loop resumes |
+| GET | `/agent_sessions/{id}/trace` | Reconstructable agent decision trace (audit-backed) |
+
+### Merchant Agent session (v0.2 extension)
+
+Request: `{buyer_request, buyer_agent_id, delegation_token, execution_mode, requested_items?, brain?}`
+
+- `execution_mode`: `buyer_completes` (agent prepares the basket; buyer triggers payment via
+  `/complete`) or `agent_completed` (the agent invokes the gated completion itself, within
+  delegated authority).
+- Response `status`: `awaiting_buyer_confirmation` (structured proposal attached),
+  `ready_for_completion`, `awaiting_payment_authorization`, `completed`, `declined`,
+  `unable_to_fulfill`.
+
+Structured proposal (`requires_confirmation`, PRD §19):
+
+```json
+{
+  "kind": "substitution",
+  "status": "requires_confirmation",
+  "reason_code": "requested_pack_unavailable",
+  "original": {"product_id": "...", "pack_id": "...", "quantity": 1},
+  "proposal": {"product_id": "...", "pack_id": "...", "name": "...",
+               "size": 500, "unit": "ml", "quantity": 1,
+               "price": 32, "currency": "INR", "line_total": 32},
+  "message": "human-readable rationale"
+}
+```
+
+Completion handoff (`buyer_completes`): a successfully created or updated checkout is a
+handoff, not a fulfillment. The Merchant Agent surfaces it via `ready_for_completion` carrying
+the authoritative server-generated `checkout_session_id`; the Buyer Agent evaluates it against
+user intent and triggers payment itself via `POST /checkout_sessions/{id}/complete`. Only
+`execution_mode=agent_completed` authorizes the agent to invoke the gated completion directly.
+
+Invariants (PRD §52): the agent cannot invent state/ids, modify authoritative prices or
+delegated authority, bypass checkout state or idempotency, authorize payment directly, or
+silently substitute products. Every agent iteration emits a hash-chained audit event with
+`payload.agent_session_id`. Iteration/tool-call budgets end in `unable_to_fulfill`; no
+payment occurs afterward.
 
 ## Checkout lifecycle
 

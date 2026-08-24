@@ -756,6 +756,30 @@ def complete_checkout(
     total_rupees = new_totals["total"]
     amount_paise = total_rupees * 100
 
+    # driver=saved: resolve the Razorpay customer BEFORE order creation —
+    # mandate-authorization orders must carry customer_id + the token block.
+    mandate: dict | None = None
+    if driver == "saved":
+        try:
+            customer = payment_service.ensure_customer(cs.buyer_agent_id)
+        except Exception as exc:  # noqa: BLE001 — credentials/config problems
+            return _fail(
+                ErrorCode.PAYMENT_FAILED,
+                f"Razorpay customer setup failed ({exc}); payment not initiated",
+                ["customer_setup_failed"],
+                f"Customer setup errored: {exc}; Razorpay NOT called",
+            ), False
+        # Hard guarantee: a mandate order without a real customer id is invalid
+        # and would silently produce non-recurring tokens downstream.
+        if not customer.get("id"):
+            return _fail(
+                ErrorCode.PAYMENT_FAILED,
+                "Razorpay customer setup returned no id; payment not initiated",
+                ["customer_setup_failed"],
+                "ensure_customer returned no id; Razorpay NOT called",
+            ), False
+        mandate = {"customer_id": customer["id"]}
+
     # Retry guard: if a previous attempt already created an open order for this
     # live session (modal dismissed, agent retried), reuse it — never duplicate.
     if cs.status == "requires_payment" and cs.razorpay_order_id:
@@ -771,7 +795,9 @@ def complete_checkout(
             reasoning_summary=f"Creating Razorpay order for ₹{total_rupees}",
         )
         try:
-            order = payment_service.create_order(cs.checkout_session_id, total_rupees)
+            order = payment_service.create_order(
+                cs.checkout_session_id, total_rupees, mandate=mandate
+            )
         except Exception as exc:  # noqa: BLE001
             cs.status = "payment_pending"
             audit_service.append_event(
@@ -801,8 +827,18 @@ def complete_checkout(
             action="razorpay_order_created",
             checkout_session_id=cs.checkout_session_id,
             decision="info",
-            reasoning_summary=f"Order {order['id']} created for ₹{total_rupees}",
-            payload={"order_id": order["id"], "driver": driver},
+            reasoning_summary=(
+                f"Order {order['id']} created for ₹{total_rupees}"
+                + (" (authorization/mandate order)" if mandate else "")
+            ),
+            payload={
+                "order_id": order["id"],
+                "driver": driver,
+                "mandate_order": bool(mandate),
+                # Diagnostic pair: what we sent vs what Razorpay stored.
+                "expected_customer_id": mandate["customer_id"] if mandate else None,
+                "echoed_customer_id": order.get("customer_id"),
+            },
         )
 
     if driver == "sim":
@@ -812,7 +848,7 @@ def complete_checkout(
     # checkout | saved — human authorization via Razorpay Checkout (token when available)
     method = get_or_create_payment_method(db, cs.buyer_agent_id)
 
-    if driver == "saved" and method.razorpay_token_id:
+    if driver == "saved" and method.razorpay_token_id and method.status == "active":
         audit_service.append_event(
             db,
             actor="merchant_agent",
@@ -825,33 +861,63 @@ def complete_checkout(
             ),
         )
         outcome = payment_service.charge_with_token(
-            order["id"], amount_paise, method.razorpay_customer_id or "", method.razorpay_token_id
+            order["id"],
+            amount_paise,
+            method.razorpay_customer_id or "",
+            method.razorpay_token_id,
+            buyer_agent_id=cs.buyer_agent_id,
         )
         if outcome.status != "declined":
             return _finalize_payment(db, cs, outcome), False
-        # Gateway rejected the saved-card token (e.g. network unsupported in test
-        # mode). Do NOT terminally decline the order — fall back to human
-        # authorization via the Razorpay Checkout modal on the SAME open order.
-        audit_service.append_event(
-            db,
-            actor="merchant_agent",
-            action="token_charge_fallback",
-            checkout_session_id=cs.checkout_session_id,
-            decision="info",
-            reasoning_summary=(
-                f"Saved-card charge rejected ({outcome.message}); falling back to "
-                "Razorpay Checkout modal authorization on the same order"
-            ),
-        )
+        if getattr(outcome, "rejection_class", None) == "auth_required":
+            # Token cannot be charged merchant-initiated (e.g. saved without a
+            # recurring mandate). Park it and re-register via the next modal.
+            method.status = "needs_reauth"
+            audit_service.append_event(
+                db,
+                actor="merchant_agent",
+                action="token_needs_reauth",
+                checkout_session_id=cs.checkout_session_id,
+                decision="info",
+                reasoning_summary=(
+                    "Saved-card token not merchant-chargeable "
+                    f"({outcome.message}); one-time re-authorization required; "
+                    "falling back to Razorpay Checkout modal on the same order "
+                    "(likely cause: E-Mandate disabled on the Razorpay account, "
+                    "or the card does not support mandates)"
+                ),
+                payload={"gateway_error": outcome.raw},
+            )
+            db.flush()
+        else:
+            # Gateway rejected the saved-card token (e.g. network unsupported in test
+            # mode). Do NOT terminally decline the order — fall back to human
+            # authorization via the Razorpay Checkout modal on the SAME open order.
+            audit_service.append_event(
+                db,
+                actor="merchant_agent",
+                action="token_charge_fallback",
+                checkout_session_id=cs.checkout_session_id,
+                decision="info",
+                reasoning_summary=(
+                    f"Saved-card charge rejected ({outcome.message}); falling back to "
+                    "Razorpay Checkout modal authorization on the same order"
+                ),
+                payload={"gateway_error": outcome.raw},
+            )
 
     # Park the session for modal authorization.
     customer_id: str | None = None
     save_card = False
     if driver == "saved":
-        customer = payment_service.ensure_customer(cs.buyer_agent_id)
-        method.razorpay_customer_id = customer.get("id")
-        method.status = "pending_save"
-        customer_id = customer.get("id")
+        # Customer was resolved before order creation (mandate requirement);
+        # persist it on the method row for the frontend + future token charges.
+        method.razorpay_customer_id = mandate["customer_id"]
+        if method.status != "needs_reauth":
+            # Preserve the reauth marker so later completions skip the doomed
+            # server-side token attempt until a compliant token is re-registered.
+            method.status = "pending_save"
+        customer_id = mandate["customer_id"]
         save_card = True
 
     audit_service.append_event(
