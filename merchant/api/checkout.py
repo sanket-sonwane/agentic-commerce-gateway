@@ -247,6 +247,9 @@ def payment_callback(checkout_session_id: str, body: dict):
                 outcome = PaymentOutcome(
                     status="completed", order_id=order_id, payment_id=payment_id,
                     message="Authorized via Razorpay Checkout; signature verified",
+                    # Carry the settled amount (from settle_probe) into
+                    # _finalize_payment so it persists as verified_payment_amount_paise.
+                    raw={"amount": settled_amount} if isinstance(settled_amount, int) and settled_amount > 0 else {},
                 )
                 out = checkout_service.finalize_with_outcome(db, cs, outcome)
 

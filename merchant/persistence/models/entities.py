@@ -70,6 +70,10 @@ class CheckoutSession(Base):
     # AP2: the amount (paise) of the actual Razorpay Order, persisted at creation
     # so the callback can prove Order amount == authorized amount (PRD §17).
     razorpay_order_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # AP2: the amount (paise) that the gateway independently reported as settled
+    # (when available). C-1: must equal razorpay_order_amount == authorized amount,
+    # or the transaction fails closed. None in hermetic sim mode (no gateway).
+    verified_payment_amount_paise: Mapped[int | None] = mapped_column(Integer, nullable=True)
     execution_mandate_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

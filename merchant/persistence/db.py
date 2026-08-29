@@ -96,6 +96,7 @@ def _apply_migrations(engine) -> None:  # noqa: ANN001
             # AP2 columns added after the original live DB was created.
             ("authorized_amount_paise", "INTEGER NULL DEFAULT NULL"),
             ("razorpay_order_amount", "INTEGER NULL DEFAULT NULL"),
+            ("verified_payment_amount_paise", "INTEGER NULL DEFAULT NULL"),
             ("execution_mandate_id", "VARCHAR NULL DEFAULT NULL"),
         ],
         "execution_mandates": [("consumed_at", "DATETIME NULL DEFAULT NULL")],

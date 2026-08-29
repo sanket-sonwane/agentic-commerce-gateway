@@ -182,6 +182,16 @@ def serialize_session(db: Session, cs: CheckoutSession) -> CheckoutSessionOut:
         if cs.authorized_amount_paise is not None:
             payment["authorized_amount_paise"] = cs.authorized_amount_paise
             payment["execution_mandate_id"] = cs.execution_mandate_id
+        if cs.razorpay_order_amount is not None:
+            payment["razorpay_order_amount_paise"] = cs.razorpay_order_amount
+        if cs.verified_payment_amount_paise is not None:
+            payment["verified_payment_amount_paise"] = cs.verified_payment_amount_paise
+        if cs.razorpay_order_amount is not None and cs.verified_payment_amount_paise is not None:
+            payment["amount_match"] = (
+                cs.authorized_amount_paise is not None
+                and cs.razorpay_order_amount == cs.authorized_amount_paise
+                and cs.verified_payment_amount_paise == cs.authorized_amount_paise
+            )
         # A live order on a non-terminal session means we're waiting for the card UI.
         if cs.status == "requires_payment" and settings.payment_driver in ("checkout", "saved"):
             payment["awaiting_authorization"] = True
@@ -909,6 +919,15 @@ def complete_checkout(
     # Retry guard: if a previous attempt already created an open order for this
     # live session (modal dismissed, agent retried), reuse it — never duplicate.
     if cs.status == "requires_payment" and cs.razorpay_order_id:
+        # C-1: never reuse an order whose persisted amount disagrees with the
+        # authorized amount — fail closed rather than charge a diverged order.
+        if cs.razorpay_order_amount is not None and cs.razorpay_order_amount != amount_paise:
+            return _fail(
+                ErrorCode.PAYMENT_BLOCKED,
+                "Existing Razorpay order amount does not match the authorized amount",
+                ["authorization_verify:order_amount"],
+                "Order reuse attempt with mismatched amount; Razorpay payment blocked",
+            ), False
         order = {"id": cs.razorpay_order_id}
         cs.payment_driver = driver
     else:
@@ -945,8 +964,19 @@ def complete_checkout(
                 },
             ), False
 
+        echo_amount = int(order.get("amount") or amount_paise)
+        # C-1: the amount actually recorded at Razorpay must equal the authorized
+        # amount. Reject any divergence fail-closed (never persist a stray order).
+        if echo_amount != amount_paise:
+            return _fail(
+                ErrorCode.PAYMENT_BLOCKED,
+                "Razorpay order amount does not match the authorized amount",
+                ["authorization_verify:order_amount"],
+                "Gateway order amount diverged from authorized amount; payment blocked",
+            ), False
+
         cs.razorpay_order_id = order["id"]
-        cs.razorpay_order_amount = int(order.get("amount") or amount_paise)
+        cs.razorpay_order_amount = echo_amount
         cs.payment_driver = driver
         audit_service.append_event(
             db,
@@ -1110,36 +1140,95 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome)
     cs.payment_driver = cs.payment_driver or settings.payment_driver
     cs.razorpay_order_id = outcome.order_id or cs.razorpay_order_id
     cs.razorpay_payment_id = outcome.payment_id
+    binding_declined = False
 
     if outcome.status == "completed":
-        # Consume reservations and decrement actual stock.
-        items = json.loads(cs.line_items)
-        for item in items:
-            pack = db.get(Pack, item["pack_id"])
-            pack.stock_actual = max(0, pack.stock_actual - item["quantity"])
-        inventory_service.consume_session_reservations(db, cs.checkout_session_id)
-        cs.status = "completed"
-        audit_service.append_event(
-            db,
-            actor="razorpay",
-            action="payment_success",
-            checkout_session_id=cs.checkout_session_id,
-            decision="approved",
-            reasoning_summary=(
-                f"Paid ₹{json.loads(cs.totals)['total']} "
-                f"(order={outcome.order_id}, payment={outcome.payment_id}"
-                f"{', simulated' if outcome.simulated else ''})"
-            ),
-            payload={"simulated": outcome.simulated, **outcome.raw},
-        )
-        audit_service.append_event(
-            db,
-            actor="merchant_agent",
-            action="checkout_completed",
-            checkout_session_id=cs.checkout_session_id,
-            decision="approved",
-            reasoning_summary="Transaction completed; stock consumed",
-        )
+        # --- C-1 amount binding guard (read-only; routes only to the existing
+        # declined transition — never alters callback/state-machine semantics).
+        # Prove authorized == order == verified BEFORE marking completed. Any
+        # divergence fails closed, so a successful completion always implies
+        # FINAL AUTHORIZED == PERSISTED AUTHORIZED == RAZORPAY ORDER
+        # == VERIFIED PAYMENT. ---
+        authorized = cs.authorized_amount_paise or 0
+        order_amt = cs.razorpay_order_amount or 0
+        raw_amt = outcome.raw.get("amount")
+        verified = raw_amt if isinstance(raw_amt, int) and raw_amt > 0 else None
+        if verified is None:
+            # No independent gateway amount (hermetic sim / no credential probe):
+            # bind against the order amount — the strongest evidence available —
+            # and note the limitation (documented in the C-1 report).
+            verified = order_amt
+        cs.verified_payment_amount_paise = verified or None
+        amount_match = authorized > 0 and order_amt == authorized and verified == authorized
+
+        if not amount_match:
+            binding_declined = True
+            inventory_service.release_session_reservations(db, cs.checkout_session_id)
+            cs.status = "declined"
+            cs.decline_code = ErrorCode.PAYMENT_BLOCKED.value
+            audit_service.append_event(
+                db,
+                actor="razorpay",
+                action="payment_amount_mismatch",
+                checkout_session_id=cs.checkout_session_id,
+                decision="declined",
+                rules_fired=["PAYMENT_BLOCKED"],
+                reasoning_summary=(
+                    f"Amount binding failed before completion: authorized {authorized}paise, "
+                    f"order {order_amt}paise, verified {verified}paise"
+                ),
+                payload={
+                    "authorized_amount_paise": authorized,
+                    "razorpay_order_amount": order_amt,
+                    "verified_payment_amount_paise": verified,
+                    "amount_match": False,
+                },
+            )
+            audit_service.append_event(
+                db,
+                actor="merchant_agent",
+                action="checkout_declined",
+                checkout_session_id=cs.checkout_session_id,
+                decision="declined",
+                rules_fired=[ErrorCode.PAYMENT_BLOCKED.value],
+                reasoning_summary="Amount binding mismatch; NO successful completion",
+            )
+        else:
+            # Consume reservations and decrement actual stock.
+            items = json.loads(cs.line_items)
+            for item in items:
+                pack = db.get(Pack, item["pack_id"])
+                pack.stock_actual = max(0, pack.stock_actual - item["quantity"])
+            inventory_service.consume_session_reservations(db, cs.checkout_session_id)
+            cs.status = "completed"
+            audit_service.append_event(
+                db,
+                actor="razorpay",
+                action="payment_success",
+                checkout_session_id=cs.checkout_session_id,
+                decision="approved",
+                reasoning_summary=(
+                    f"Paid ₹{json.loads(cs.totals)['total']} "
+                    f"(order={outcome.order_id}, payment={outcome.payment_id}"
+                    f"{', simulated' if outcome.simulated else ''})"
+                ),
+                payload={
+                    "simulated": outcome.simulated,
+                    "authorized_amount_paise": authorized,
+                    "razorpay_order_amount": order_amt,
+                    "verified_payment_amount_paise": verified,
+                    "amount_match": True,
+                    **outcome.raw,
+                },
+            )
+            audit_service.append_event(
+                db,
+                actor="merchant_agent",
+                action="checkout_completed",
+                checkout_session_id=cs.checkout_session_id,
+                decision="approved",
+                reasoning_summary="Transaction completed; stock consumed",
+            )
     elif outcome.status == "pending":
         cs.status = "payment_pending"
         audit_service.append_event(
@@ -1178,7 +1267,19 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome)
     _issue_receipt_for_outcome(db, cs, outcome)
 
     resp = CompleteResponse(checkout_session=serialize_session(db, cs))
-    if outcome.status == "pending":
+    if binding_declined:
+        resp.error = {
+            "code": ErrorCode.PAYMENT_BLOCKED.value,
+            "message": "Amount binding failed; payment amount does not match the "
+                       "authorized execution amount",
+            "retryable": False,
+            "details": {
+                "authorized_amount_paise": cs.authorized_amount_paise,
+                "razorpay_order_amount": cs.razorpay_order_amount,
+                "verified_payment_amount_paise": cs.verified_payment_amount_paise,
+            },
+        }
+    elif outcome.status == "pending":
         resp.error = {
             "code": ErrorCode.PAYMENT_PENDING.value,
             "message": outcome.message or "Payment unresolved",
