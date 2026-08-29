@@ -63,6 +63,14 @@ class CheckoutSession(Base):
     payment_driver: Mapped[str | None] = mapped_column(String, nullable=True)
     razorpay_order_id: Mapped[str | None] = mapped_column(String, nullable=True)
     razorpay_payment_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # AP2 amount binding: the exact amount authorized for payment, in paise,
+    # frozen at the moment the Execution Mandate is created (PRD §16). Must
+    # equal the Razorpay order/payment amount or payment is blocked.
+    authorized_amount_paise: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # AP2: the amount (paise) of the actual Razorpay Order, persisted at creation
+    # so the callback can prove Order amount == authorized amount (PRD §17).
+    razorpay_order_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    execution_mandate_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -125,3 +133,90 @@ class PaymentMethod(Base):
     status: Mapped[str] = mapped_column(String, default="pending_save")  # pending_save | active
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class IntentMandate(Base):
+    """Signed authorization of buyer scope (AP2 §10–12)."""
+
+    __tablename__ = "intent_mandates"
+
+    mandate_id: Mapped[str] = mapped_column(String, primary_key=True)
+    type: Mapped[str] = mapped_column(String, default="intent")
+    merchant_id: Mapped[str] = mapped_column(String)
+    buyer_agent_id: Mapped[str] = mapped_column(String, index=True)
+    intent: Mapped[str] = mapped_column(String, default="{}")  # JSON
+    constraints: Mapped[str] = mapped_column(String, default="{}")  # JSON
+    issued_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    nonce: Mapped[str] = mapped_column(String)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    canonical_payload_hash: Mapped[str] = mapped_column(String, default="")
+    key_id: Mapped[str] = mapped_column(String, default="")
+    signature: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ExecutionMandate(Base):
+    """Signed binding of the exact transaction about to be charged (AP2 §13–15)."""
+
+    __tablename__ = "execution_mandates"
+
+    mandate_id: Mapped[str] = mapped_column(String, primary_key=True)
+    type: Mapped[str] = mapped_column(String, default="execution")
+    intent_mandate_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    merchant_id: Mapped[str] = mapped_column(String)
+    buyer_agent_id: Mapped[str] = mapped_column(String, index=True)
+    checkout_session_id: Mapped[str] = mapped_column(String, index=True)
+    items: Mapped[str] = mapped_column(String, default="[]")  # JSON
+    total_paise: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String, default="INR")
+    cart_hash: Mapped[str] = mapped_column(String, default="")
+    issued_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    nonce: Mapped[str] = mapped_column(String)
+    canonical_payload_hash: Mapped[str] = mapped_column(String, default="")
+    key_id: Mapped[str] = mapped_column(String, default="")
+    signature: Mapped[str] = mapped_column(String, default="")
+    # AP2 single-use: set when the mandate's payment is settled (or declined) so a
+    # consumed mandate can never authorize a second payment (replay protection).
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PolicyDecision(Base):
+    """Signed deterministic gating decision that authorizes the execution mandate."""
+
+    __tablename__ = "policy_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String, primary_key=True)
+    execution_mandate_id: Mapped[str] = mapped_column(String, index=True)
+    checkout_session_id: Mapped[str] = mapped_column(String, index=True)
+    decision: Mapped[str] = mapped_column(String)  # approved | rejected | hold
+    checks: Mapped[str] = mapped_column(String, default="[]")  # JSON
+    authorized_amount_paise: Mapped[int] = mapped_column(Integer)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    canonical_payload_hash: Mapped[str] = mapped_column(String, default="")
+    key_id: Mapped[str] = mapped_column(String, default="")
+    signature: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DecisionReceipt(Base):
+    """Signed binding of mandate + policy + Razorpay order/payment (AP2 §27–28)."""
+
+    __tablename__ = "decision_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String, primary_key=True)
+    intent_mandate_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    execution_mandate_id: Mapped[str] = mapped_column(String, index=True)
+    decision_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    checkout_session_id: Mapped[str] = mapped_column(String, index=True)
+    authorized_amount_paise: Mapped[int] = mapped_column(Integer)
+    razorpay_order_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    razorpay_payment_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    payment_status: Mapped[str] = mapped_column(String)  # verified
+    outcome: Mapped[str] = mapped_column(String)  # completed | declined | pending
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    canonical_payload_hash: Mapped[str] = mapped_column(String, default="")
+    key_id: Mapped[str] = mapped_column(String, default="")
+    signature: Mapped[str] = mapped_column(String, default="")

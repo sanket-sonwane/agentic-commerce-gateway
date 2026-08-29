@@ -108,6 +108,33 @@ def _compute_totals(resolved_items: list[dict]) -> dict:
     }
 
 
+def computes_cart_hash(items: list[dict]) -> str:
+    """Stable SHA-256 over the resolved line items (AP2 §21 cart_hash).
+
+    Canonical form keys on product_id/pack_id/quantity/unit_price_paise so it
+    is stable regardless of metadata ordering. Accepts both the resolved session
+    item shape (unit_price in rupees) and the Execution Mandate shape
+    (unit_price_paise), normalizing to paise so both sides hash identically.
+    """
+    from merchant_agent.services import crypto_service
+
+    normalized = []
+    for i in items:
+        up = i.get("unit_price_paise")
+        if up is None:
+            up = int(i["unit_price"]) * 100
+        normalized.append(
+            {
+                "product_id": i["product_id"],
+                "pack_id": i["pack_id"],
+                "quantity": int(i["quantity"]),
+                "unit_price_paise": int(up),
+            }
+        )
+    normalized.sort(key=lambda i: (i["product_id"], i["pack_id"]))
+    return crypto_service.sha256_hex(normalized)
+
+
 def _gate(db: Session, delegation, resolved_items: list[dict], totals: dict) -> GatingResult:
     return gating_service.evaluate(db, delegation, resolved_items, totals["total"])
 
@@ -150,6 +177,9 @@ def serialize_session(db: Session, cs: CheckoutSession) -> CheckoutSessionOut:
             "amount": json.loads(cs.totals).get("total"),
             "currency": "INR",
         }
+        if cs.authorized_amount_paise is not None:
+            payment["authorized_amount_paise"] = cs.authorized_amount_paise
+            payment["execution_mandate_id"] = cs.execution_mandate_id
         # A live order on a non-terminal session means we're waiting for the card UI.
         if cs.status == "requires_payment" and settings.payment_driver in ("checkout", "saved"):
             payment["awaiting_authorization"] = True
@@ -600,6 +630,7 @@ def complete_checkout(
     buyer_agent_id: str,
     delegation_token: str,
     idempotency_key: str | None = None,
+    intent_mandate_id: str | None = None,
 ) -> tuple[CompleteResponse, bool]:
     """The highest-risk operation. Returns (response, replayed_flag).
 
@@ -749,12 +780,105 @@ def complete_checkout(
         payload={"checks": [c.model_dump() for c in gating.checks]},
     )
 
-    # --- 5. Money movement ---
+    # --- 5. AP2: build + sign the Execution Mandate (PRD §14–15) ---
+    # Freeze the exact basket about to be charged, then verify it before any
+    # money movement. Fail closed: any verification failure -> NO Razorpay call.
+    from merchant_agent.services import authorization_service, crypto_service
+
+    amount_paise = new_totals["total"] * 100
+    mandate_items = [
+        {
+            "product_id": i["product_id"],
+            "pack_id": i["pack_id"],
+            "quantity": int(i["quantity"]),
+            "unit_price_paise": int(i["unit_price"]) * 100,
+            "category": i.get("category", ""),
+        }
+        for i in fresh
+    ]
+
+    # AP2 intent binding (RE-3): if an Intent Mandate is supplied, the execution
+    # MUST fall within its signed constraints. Verified against the intent BEFORE
+    # any money movement — out-of-scope transactions are blocked fail-closed.
+    if intent_mandate_id:
+        scope_ok, scope_detail = authorization_service.verify_intent_scope(
+            db,
+            intent_mandate_id,
+            buyer_agent_id=buyer_agent_id,
+            items=mandate_items,
+            total_paise=amount_paise,
+        )
+        if not scope_ok:
+            return _fail(
+                ErrorCode.PAYMENT_BLOCKED,
+                f"Execution outside signed intent scope: {scope_detail}",
+                ["authorization_verify:intent_scope"],
+                f"Intent Mandate {intent_mandate_id} does not authorize this execution; Razorpay NOT called",
+            ), False
+        audit_service.append_event(
+            db,
+            actor="merchant_agent",
+            action="intent_scope_verified",
+            checkout_session_id=cs.checkout_session_id,
+            decision="approved",
+            reasoning_summary=scope_detail,
+            payload={"intent_mandate_id": intent_mandate_id},
+        )
+
+    exec_mandate = authorization_service.build_execution_mandate(
+        db,
+        cs,
+        buyer_agent_id=buyer_agent_id,
+        items=mandate_items,
+        total_paise=amount_paise,
+        intent_mandate_id=intent_mandate_id,
+    )
+
+    policy_decision = authorization_service.sign_policy_decision(
+        db,
+        cs,
+        exec_mandate.mandate_id,
+        decision="approved" if gating.passed else "rejected",
+        checks=[c.model_dump() for c in gating.checks],
+        authorized_amount_paise=amount_paise,
+    )
+
+    verify_checks = authorization_service.verify_execution_mandate(
+        db, exec_mandate, cs, buyer_agent_id=buyer_agent_id
+    )
+    failed_checks = [name for name, ok in verify_checks.items() if not ok]
+    if failed_checks:
+        # Fail closed: unsigned/unbound transaction must never reach Razorpay.
+        return _fail(
+            ErrorCode.PAYMENT_BLOCKED,
+            f"Authorization verification failed: {', '.join(failed_checks)}",
+            ["authorization_verify:fail"],
+            "Execution Mandate failed verification; Razorpay NOT called",
+        ), False
+    audit_service.append_event(
+        db,
+        actor="merchant_agent",
+        action="execution_mandate_created",
+        checkout_session_id=cs.checkout_session_id,
+        decision="approved",
+        reasoning_summary=(
+            f"Execution Mandate {exec_mandate.mandate_id} signed + verified "
+            f"(authorized ₹{new_totals['total']})"
+        ),
+        payload={
+            "mandate_id": exec_mandate.mandate_id,
+            "decision_id": policy_decision.decision_id,
+            "authorized_amount_paise": amount_paise,
+            "canonical_payload_hash": exec_mandate.canonical_payload_hash,
+            "checks": verify_checks,
+        },
+    )
+
+    # --- 6. Money movement ---
     from merchant_agent.services import payment_service
 
     driver = settings.payment_driver
     total_rupees = new_totals["total"]
-    amount_paise = total_rupees * 100
 
     # driver=saved: resolve the Razorpay customer BEFORE order creation —
     # mandate-authorization orders must carry customer_id + the token block.
@@ -820,6 +944,7 @@ def complete_checkout(
             ), False
 
         cs.razorpay_order_id = order["id"]
+        cs.razorpay_order_amount = int(order.get("amount") or amount_paise)
         cs.payment_driver = driver
         audit_service.append_event(
             db,
@@ -913,9 +1038,10 @@ def complete_checkout(
         # Customer was resolved before order creation (mandate requirement);
         # persist it on the method row for the frontend + future token charges.
         method.razorpay_customer_id = mandate["customer_id"]
-        if method.status != "needs_reauth":
-            # Preserve the reauth marker so later completions skip the doomed
-            # server-side token attempt until a compliant token is re-registered.
+        if method.status != "needs_reauth" and not method.razorpay_token_id:
+            # Only brand-new methods drop to pending_save. An existing token
+            # stays active so later completions keep attempting headless
+            # charges (transient SERVER_ERRORs must never disable them).
             method.status = "pending_save"
         customer_id = mandate["customer_id"]
         save_card = True
@@ -957,6 +1083,25 @@ def get_or_create_payment_method(db: Session, buyer_agent_id: str) -> PaymentMet
 
 def finalize_with_outcome(db: Session, cs: CheckoutSession, outcome: PaymentOutcome) -> CompleteResponse:
     return _finalize_payment(db, cs, outcome)
+
+
+def settle_probe(cs: CheckoutSession, payment_id: str) -> int | None:
+    """Best-effort settled payment amount (paise) for amount-binding checks.
+
+    Returns None when the amount cannot be determined (no credentials / sim),
+    in which case the callback falls back to the persisted order amount. Never
+    raises: a probe failure must not block an already-verified payment.
+    """
+    from merchant_agent.services import payment_service
+
+    try:
+        pay = payment_service.fetch_payment(payment_id)
+    except Exception:  # noqa: BLE001
+        return None
+    raw_amount = pay.get("amount")
+    if isinstance(raw_amount, int) and raw_amount > 0:
+        return raw_amount
+    return cs.razorpay_order_amount
 
 
 def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome) -> CompleteResponse:
@@ -1026,6 +1171,10 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome)
             reasoning_summary="Gateway decline recorded",
         )
     db.flush()
+
+    # AP2: issue a signed Decision Receipt binding mandate + policy + payment.
+    _issue_receipt_for_outcome(db, cs, outcome)
+
     resp = CompleteResponse(checkout_session=serialize_session(db, cs))
     if outcome.status == "pending":
         resp.error = {
@@ -1042,6 +1191,55 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome)
             "details": {},
         }
     return resp
+
+
+def _issue_receipt_for_outcome(db: Session, cs: CheckoutSession, outcome: PaymentOutcome) -> None:
+    """Create + sign a Decision Receipt only when an Execution Mandate exists.
+
+    Old/legacy transactions without a mandate (created before the AP2 layer)
+    simply have no receipt — provenance reports NOT_AVAILABLE for them.
+    """
+    if not cs.execution_mandate_id:
+        return
+    from merchant_agent.models.entities import ExecutionMandate, PolicyDecision
+    from merchant_agent.services import authorization_service
+
+    mandate = db.get(ExecutionMandate, cs.execution_mandate_id)
+    if mandate is None:
+        return
+    decision = (
+        db.query(PolicyDecision)
+        .filter(PolicyDecision.execution_mandate_id == mandate.mandate_id)
+        .order_by(PolicyDecision.created_at.desc())
+        .first()
+    )
+    receipt = authorization_service.issue_decision_receipt(
+        db,
+        cs,
+        mandate=mandate,
+        decision=decision,
+        outcome=outcome.status,
+        razorpay_order_id=cs.razorpay_order_id,
+        razorpay_payment_id=cs.razorpay_payment_id,
+    )
+    # AP2 single-use: once settled/declined, the mandate can never authorize a
+    # second payment. Verify-and-complete on a consumed mandate now fails closed.
+    authorization_service.mark_mandate_consumed(db, mandate)
+    audit_service.append_event(
+        db,
+        actor="merchant_agent",
+        action="decision_receipt_issued",
+        checkout_session_id=cs.checkout_session_id,
+        decision="info",
+        reasoning_summary=f"Signed Decision Receipt {receipt.receipt_id} recorded",
+        payload={
+            "receipt_id": receipt.receipt_id,
+            "execution_mandate_id": mandate.mandate_id,
+            "authorized_amount_paise": receipt.authorized_amount_paise,
+            "outcome": outcome.status,
+        },
+    )
+    db.flush()
 
 
 def reconcile_session(db: Session, checkout_session_id: str) -> CompleteResponse:

@@ -12,7 +12,7 @@ plane** enforces policy at every step, revalidates before money moves, executes 
 test payments, and records a tamper-evident audit trail.
 
 ```
-User ⇄ Chat UI ──▶ BUYER AGENT (NIM tool-loop) ──Commerce Protocol──▶ MERCHANT AGENT (NIM tool-loop)
+User ⇄ Chat UI ──▶ BUYER AGENT (Groq tool-loop) ──Commerce Protocol──▶ MERCHANT AGENT (Groq tool-loop)
                   intent · budget · negotiation                      observe → reason → act → adapt
                           │ [human approves bill]                              │ tool registry (12 allowlisted tools)
                           ▼                                                    ▼
@@ -98,7 +98,7 @@ after checkout with recovery-through-alternative.
 
 | Key | Where to get it |
 |---|---|
-| `NIM_API_KEY` | NVIDIA build.nvidia.com — `nvapi-…` (free tier: use `meta/llama-3.1-8b-instruct`) |
+| `LLM_API_KEY` | console.groq.com → API Keys — `gsk_…` (models: `openai/gpt-oss-120b`, `openai/gpt-oss-20b`) |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Razorpay Dashboard → Settings → API Keys → **Test** mode (`rzp_test_…`) |
 
 ### Payment drivers (`PAYMENT_DRIVER`)
@@ -146,7 +146,7 @@ merchant_agent/        FastAPI merchant: discovery, checkout state machine, gati
 merchant_agent/agent/  Merchant Agent runtime: tool registry (12 allowlisted tools),
                        observe→reason→act→adapt loop, LLM brain + deterministic fallback,
                        transaction-scoped state, per-iteration audit events
-buyer_service/         chat backend: NIM tool-loop, merchant-agent negotiation
+buyer_service/         chat backend: Groq tool-loop, merchant-agent negotiation
                        (proposal evaluation + accept/reject), approval gate, SSE events
 buyer_b/               independent deterministic protocol client
 dashboard/             React+Vite: Chat view + Merchant Ops view (+ Agent decision trace)

@@ -44,7 +44,10 @@ def list_audit_logs(
 @router.get("/audit_logs/verify")
 def verify_audit_logs(db: Session = Depends(read_only)):
     intact, checked, broken = audit_service.verify_chain(db)
-    return AuditVerifyResponse(intact=intact, entries_checked=checked, first_broken_seq=broken)
+    anchor = audit_service.signed_head_anchor(db)
+    return AuditVerifyResponse(
+        intact=intact, entries_checked=checked, first_broken_seq=broken, anchor=anchor
+    )
 
 
 @router.get("/explain/{checkout_session_id}")

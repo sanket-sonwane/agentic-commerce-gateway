@@ -30,7 +30,7 @@ _LEAKED_TOOLCALL_RE = re.compile(r"<\|?(?:tool_call|eom_id)|call:\s*\w+\s*\{", r
 def _client():
     from openai import OpenAI
 
-    return OpenAI(base_url=settings.nim_base_url, api_key=settings.nim_api_key, timeout=60.0)
+    return OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=60.0)
 
 
 def _shorten_discovery(result: dict) -> str:
@@ -147,12 +147,20 @@ class BuyerAgent:
             session = payload.get("checkout_session")
             if status == 201 and session and session.get("status") == "requires_payment":
                 conv.active_session_id = session["checkout_session_id"]
+                # AP2: bind the buyer's intent scope to a signed Intent Mandate so
+                # completion can prove the execution stays within what was authorized.
+                intent_text = (conv.last_query or "").strip() or "Purchase the selected grocery basket"
+                if not conv.intent_mandate_id:
+                    im_status, im_payload = self.merchant.create_intent_mandate(intent_text)
+                    if im_status == 201:
+                        conv.intent_mandate_id = im_payload.get("mandate_id")
                 return {
                     "created": True,
                     "checkout_session_id": session["checkout_session_id"],
                     "status": session["status"],
                     "line_items": session["line_items"],
                     "totals": session["totals"],
+                    "intent_mandate_id": conv.intent_mandate_id,
                 }
             if "error" in payload:
                 err = payload["error"]
@@ -299,7 +307,7 @@ class BuyerAgent:
         for _ in range(settings.max_agent_iterations):
             try:
                 resp = _client().chat.completions.create(
-                    model=settings.nim_model,
+                    model=settings.buyer_llm_model,
                     messages=messages,
                     tools=TOOL_SCHEMAS,
                     temperature=0.2,
@@ -477,7 +485,7 @@ class BuyerAgent:
         yield from self._complete_flow(conv, csid)
 
     def _complete_flow(self, conv, csid: str) -> Generator[dict, None, None]:
-        status_code, payload = self.merchant.complete_checkout(csid)
+        status_code, payload = self.merchant.complete_checkout(csid, intent_mandate_id=conv.intent_mandate_id)
 
         if status_code == 200:
             session = payload.get("checkout_session", {})

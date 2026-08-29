@@ -4,10 +4,6 @@ import ChatView from './views/ChatView.jsx'
 import OpsView from './views/OpsView.jsx'
 import { checkHealth, merchantFetch } from './api.js'
 
-/**
- * Single-window shell: chat is home; Merchant Ops opens as a slide-over
- * panel (deep-linkable per session via onRequestOps).
- */
 export default function App() {
   const [opsOpen, setOpsOpen] = useState(false)
   const [focusSession, setFocusSession] = useState(null)
@@ -37,7 +33,6 @@ export default function App() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  // ExplainDrawer "Open full audit trail" deep-link
   useEffect(() => {
     const handler = e => openOps(e.detail || null)
     window.addEventListener('acg:open-ops', handler)
@@ -54,25 +49,26 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <div className="brand-mark"><ShoppingBag size={19} strokeWidth={2.2} /></div>
+          <div className="brand-mark"><ShoppingBag size={16} strokeWidth={2.2} /></div>
           <div>
-            <h1>Agentic Commerce</h1>
-            <div className="sub"><span>ACP v0.1</span><span>·</span><span>Razorpay test mode</span></div>
+            <h1>ACG</h1>
+            <div className="sub"><span>v0.1</span><span>&middot;</span><span>Razorpay test</span></div>
           </div>
         </div>
         <div className="spacer" />
         <div className="health" title="Service health (refreshes every 12s)">
           <label><span className={`dot ${health.merchant === true ? 'ok' : health.merchant === false ? 'bad' : ''}`} /> merchant</label>
-          <label><span className={`dot ${health.buyer === true ? 'ok' : health.buyer === false ? 'bad' : ''}`} /> AI agent</label>
+          <label><span className={`dot ${health.buyer === true ? 'ok' : health.buyer === false ? 'bad' : ''}`} /> agent</label>
         </div>
         <button className="icon-btn" title="Toggle theme" onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}>
-          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
         </button>
         <button
           className={`ops-toggle ${opsOpen ? 'on' : ''}`}
           onClick={() => (opsOpen ? setOpsOpen(false) : openOps())}
+          title="Merchant Ops & audit trail"
         >
-          <LayoutDashboard size={14} /> Audit trail & ops
+          <LayoutDashboard size={13} /> Ops
         </button>
       </header>
 
@@ -85,19 +81,18 @@ export default function App() {
           <div className="ops-scrim" onClick={() => setOpsOpen(false)} />
           <aside className="ops-panel" role="dialog" aria-label="Merchant operations and audit trail">
             <div className="ops-head">
-              <h2><LayoutDashboard size={15} /> Merchant Ops — audit trail</h2>
+              <h2><LayoutDashboard size={14} /> Merchant Ops</h2>
               {integrity && (
                 <span className={`integrity-badge ${integrity.intact ? 'yes' : 'no'}`}>
-                  <ShieldCheck size={12} />
-                  {integrity.intact ? `chain ✓ ${integrity.entries_checked}` : `tampered @${integrity.first_broken_seq}`}
+                  <ShieldCheck size={11} />
+                  {integrity.intact ? `chain verified ${integrity.entries_checked}` : `tampered @${integrity.first_broken_seq}`}
                 </span>
               )}
               <button className="icon-btn" title="Close" onClick={() => setOpsOpen(false)}>
-                <X size={16} />
+                <X size={15} />
               </button>
             </div>
             <div className="ops-body">
-              {/* P4 replaces this with the redesigned OpsPanel */}
               <OpsView focusSessionId={focusSession} />
             </div>
           </aside>

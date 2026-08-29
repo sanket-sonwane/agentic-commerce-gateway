@@ -14,6 +14,7 @@ class Conversation:
     active_session_id: str | None = None
     active_agent_session_id: str | None = None             # merchant agent session under negotiation
     last_query: str = ""                                   # most recent discovery query
+    intent_mandate_id: str | None = None                   # AP2 signed intent authorizing scope
     last_basket_items: list[dict] = field(default_factory=list)
     last_candidates: list[dict] = field(default_factory=list)  # most recent discovery result
     declined_packs: list[str] = field(default_factory=list)    # packs declined as out-of-stock

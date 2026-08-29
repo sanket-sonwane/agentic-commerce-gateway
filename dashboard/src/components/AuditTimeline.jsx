@@ -48,7 +48,7 @@ export default function AuditTimeline({ events = [], limit = 250, stepper = true
   return (
     <div>
       {stages && (
-        <div className="story-stepper" style={{ marginBottom: 14 }}>
+        <div className="story-stepper" style={{ marginBottom: 12 }}>
           {stages.map(s => (
             <div key={s.key} className={`story-stage ${s.done ? 'done' : ''} ${s.outcome ? `outcome ${s.label.toLowerCase()}` : ''}`}>
               <span className="stage-dot" />
@@ -77,7 +77,7 @@ export default function AuditTimeline({ events = [], limit = 250, stepper = true
                   <span className="ab-rail" style={{ background: actorColor('merchant_agent') }} />
                   Agent reasoning ({b.items.length})
                 </summary>
-                <div style={{ paddingLeft: 10 }}>
+                <div style={{ paddingLeft: 8 }}>
                   {b.items.map(ev => <Row key={ev.seq} ev={ev} />)}
                 </div>
               </details>
@@ -85,7 +85,7 @@ export default function AuditTimeline({ events = [], limit = 250, stepper = true
           }
           return <Row key={b.ev.seq} ev={b.ev} />
         })}
-        {!blocks.length && <div className="kv" style={{ color: 'var(--muted)' }}>No matching events.</div>}
+        {!blocks.length && <div className="muted">No matching events.</div>}
       </div>
     </div>
   )

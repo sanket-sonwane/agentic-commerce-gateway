@@ -64,7 +64,7 @@ export default function MoneyStoryDrawer({ sessionId, onClose }) {
       <aside className="explain-drawer" role="dialog" aria-label="Money story">
         <div className="drawer-head">
           <h3>Money story</h3>
-          <span className="mono" style={{ fontSize: 10.5, color: 'var(--faint)' }}>{sessionId}</span>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--faint)' }}>{sessionId}</span>
           <button className="icon-btn" onClick={onClose} title="Close"><X size={15} /></button>
         </div>
         <div className="drawer-body">
@@ -171,7 +171,7 @@ export default function MoneyStoryDrawer({ sessionId, onClose }) {
 
           <button
             className="mini-btn full"
-            style={{ marginTop: 16 }}
+            style={{ marginTop: 14 }}
             onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('acg:open-ops', { detail: sessionId })) }}
           >
             Open full audit trail

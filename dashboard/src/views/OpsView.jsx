@@ -62,20 +62,20 @@ export default function OpsView({ focusSessionId = null }) {
     <div className="ops-grid">
       <div>
         <div className="stepper-tabs">
-          <button className="mini-btn" style={{ opacity: tab === 'tx' ? 1 : 0.5 }} onClick={() => { setTab('tx'); setSelected(null) }}>
+          <button className={`tab-btn ${tab === 'tx' ? 'active' : ''}`} onClick={() => { setTab('tx'); setSelected(null) }}>
             <ReceiptText size={12} /> Transactions
           </button>
-          <button className="mini-btn" style={{ opacity: tab === 'agent' ? 1 : 0.5 }} onClick={() => { setTab('agent'); setAgentSessionId(null) }}>
+          <button className={`tab-btn ${tab === 'agent' ? 'active' : ''}`} onClick={() => { setTab('agent'); setAgentSessionId(null) }}>
             Agent traces
           </button>
         </div>
 
         {tab === 'tx' ? (
           <>
-            <div className="ops-section-title" style={{ marginTop: 4 }}>Transactions</div>
+            <div className="ops-section-title" style={{ marginTop: 2 }}>Transactions</div>
             {opsStatus && (
-              <div className="kv" style={{ marginBottom: 10 }}>
-                driver <b>{opsStatus.payment_driver}</b> · razorpay{' '}
+              <div className="kv" style={{ marginBottom: 8 }}>
+                driver <b>{opsStatus.payment_driver}</b> &middot; razorpay{' '}
                 <span className={opsStatus.razorpay_credentials_present ? 'intact-yes' : 'intact-no'}>
                   {opsStatus.razorpay_credentials_present ? 'connected' : 'no credentials'}
                 </span>
@@ -96,7 +96,7 @@ export default function OpsView({ focusSessionId = null }) {
                 </div>
               </div>
             ))}
-            {!sessions.length && <div className="kv" style={{ color: 'var(--muted)' }}>No transactions yet — place an order in chat.</div>}
+            {!sessions.length && <div className="muted">No transactions yet — place an order in chat.</div>}
           </>
         ) : (
           <MerchantAgentSection
@@ -116,7 +116,7 @@ export default function OpsView({ focusSessionId = null }) {
       ) : selected ? (
         <SessionDetail sessionId={selected} />
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
+        <div className="empty-state">
           Select a transaction to inspect its full audit trail.
         </div>
       )}
@@ -130,6 +130,7 @@ function SessionDetail({ sessionId }) {
   const [session, setSession] = useState(null)
   const [events, setEvents] = useState([])
   const [explanation, setExplanation] = useState(null)
+  const [provenance, setProvenance] = useState(null)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -141,6 +142,8 @@ function SessionDetail({ sessionId }) {
       if (alive) setEvents(a.body.events || [])
       const x = await merchantFetch(`/explain/${sessionId}`)
       if (alive) setExplanation(x.body)
+      const p = await merchantFetch(`/provenance/${sessionId}`)
+      if (alive && p.ok) setProvenance(p.body)
     }
     load()
     const t = setInterval(load, 1500)
@@ -161,20 +164,20 @@ function SessionDetail({ sessionId }) {
 
   return (
     <>
-      <div className="sess-header" style={{ marginBottom: 6 }}>
+      <div className="sess-header">
         <button className="icon-btn" title={sessionId} onClick={copyId}>
-          {copied ? <Check size={13} style={{ color: 'var(--green)' }} /> : <Copy size={13} />}
+          {copied ? <Check size={13} className="intact-yes" /> : <Copy size={13} />}
         </button>
-        <span className="mono" style={{ fontWeight: 700, fontSize: 12.5 }}>{sessionId}</span>
+        <span className="mono" style={{ fontWeight: 700, fontSize: 12 }}>{sessionId}</span>
         {session && <span className={`badge ${session.status}`}>{session.status.replace(/_/g, ' ')}</span>}
-        {session && <span style={{ marginLeft: 'auto', fontWeight: 800 }}>₹{session.totals?.total}</span>}
+        {session && <span className="flex-spacer" style={{ fontWeight: 800 }}>₹{session.totals?.total}</span>}
       </div>
 
       <div className="ops-section-title">Plain answer</div>
       <div className="explain-box">
         <div className="headline">{explanation?.explanation || '…'}</div>
         {!!explanation?.timeline_facts?.length && (
-          <ul style={{ margin: '7px 0 0', paddingLeft: 17, color: 'var(--text-dim)', fontSize: 12 }}>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 17 }}>
             {explanation.timeline_facts.map((f, i) => <li key={i}>{f}</li>)}
           </ul>
         )}
@@ -192,7 +195,7 @@ function SessionDetail({ sessionId }) {
           ))}
         </div>
       ) : (
-        <div className="kv" style={{ color: 'var(--muted)' }}>No policy evaluation yet.</div>
+        <div className="kv muted">No policy evaluation yet.</div>
       )}
 
       <div className="ops-section-title"><CreditCard size={11} style={{ verticalAlign: -1 }} /> Payment</div>
@@ -201,7 +204,7 @@ function SessionDetail({ sessionId }) {
         <div className="kv"><b>saved card</b> {session.payment.saved_card.network} ••••{session.payment.saved_card.last4}</div>
       )}
       {session?.status === 'requires_payment' && session?.payment?.awaiting_authorization && session?.razorpay_order_id && (
-        <div style={{ margin: '10px 0' }}>
+        <div className="pay-card-wrapper">
           <RazorpayPayCard
             redirect={{
               checkout_session_id: session.checkout_session_id,
@@ -216,8 +219,69 @@ function SessionDetail({ sessionId }) {
         </div>
       )}
 
+      <ProvenancePanel provenance={provenance} />
+
       <div className="ops-section-title">Audit timeline</div>
       <AuditTimeline events={events} stepper />
+    </>
+  )
+}
+
+/* ------------------------------------------------- signed authorization & proof */
+
+function ProvenancePanel({ provenance }) {
+  const [open, setOpen] = useState(false)
+  if (!provenance) return null
+  const passCount = (provenance.checks || []).filter(c => c.ok).length
+  const total = (provenance.checks || []).length
+  return (
+    <>
+      <div className="ops-section-title">
+        <ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Signed Authorization &amp; Proof
+        <span style={{ marginLeft: 'auto', fontSize: 10 }}>
+          {provenance.provenance_available
+            ? <span className={passCount === total && total > 0 ? 'intact-yes' : 'intact-no'}>
+                {passCount}/{total} verified
+              </span>
+            : <span className="intact-no">NOT_AVAILABLE</span>}
+        </span>
+      </div>
+      <div className="explain-box">
+        {provenance.provenance_available ? (
+          <>
+            <div className="headline">{provenance.summary}</div>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 17 }}>
+              {(provenance.checks || []).map((c, i) => (
+                <li key={i}>
+                  <span className={c.ok ? 'intact-yes' : 'intact-no'}>
+                    {c.ok ? '✓' : '✕'} {c.name}
+                  </span>{' '}
+                  <span className="muted">— {c.detail}</span>
+                </li>
+              ))}
+            </ul>
+            <button className="mini-btn" style={{ marginTop: 8 }} onClick={() => setOpen(o => !o)}>
+              {open ? 'Hide' : 'Show'} artifact hashes
+            </button>
+            {open && (
+              <div className="kv" style={{ marginTop: 6 }}>
+                {provenance.artifacts?.execution_mandate && (
+                  <>
+                    <div><b>execution mandate</b> {provenance.artifacts.execution_mandate.mandate_id}</div>
+                    <div><b>authorized amount</b> ₹{(provenance.artifacts.execution_mandate.total_paise / 100).toFixed(2)}</div>
+                  </>
+                )}
+                {provenance.artifacts?.decision_receipt && (
+                  <div><b>decision receipt</b> {provenance.artifacts.decision_receipt.receipt_id}</div>
+                )}
+                <div><b>merchant key</b> <span className="mono">{provenance.artifacts?.merchant_key_id}</span></div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="muted">{provenance.summary}</div>
+        )}
+      </div>
     </>
   )
 }

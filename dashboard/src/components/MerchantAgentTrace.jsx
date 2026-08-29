@@ -77,7 +77,7 @@ export function AgentTraceDetail({ agentSessionId }) {
   const buyerDecision = events.find(e => e.action === 'buyer_proposal_decision')
   const agentActions = events.filter(e => e.action.startsWith('agent_') && e.action !== 'agent_outcome' && e.action !== 'agent_reasoning_only')
 
-  if (!session) return <div className="sysline">Loading agent session…</div>
+  if (!session) return <div className="muted">Loading agent session…</div>
   const outcome = session.outcome || {}
   const proposal = session.proposal
 
@@ -85,7 +85,7 @@ export function AgentTraceDetail({ agentSessionId }) {
     <>
       <div className="ops-col">
         <h3><Bot size={13} /> Merchant Agent</h3>
-        <div className="explain-box" style={{ marginBottom: 12 }}>
+        <div className="explain-box" style={{ marginBottom: 10 }}>
           <div className="headline">“{session.buyer_request}”</div>
           <div className="kv"><b>session</b> {session.agent_session_id}</div>
           <div className="kv"><b>status</b> {String(session.status).replace(/_/g, ' ')}</div>
@@ -104,7 +104,7 @@ export function AgentTraceDetail({ agentSessionId }) {
             {proposal.proposal?.name && (
               <div className="kv"><b>proposed</b> {proposal.proposal.name} ({proposal.proposal.size}{proposal.proposal.unit}) ×{proposal.proposal.quantity} — ₹{proposal.proposal.line_total ?? proposal.proposal.total}</div>
             )}
-            {proposal.message && <div className="kv" style={{ color: 'var(--muted)' }}>{proposal.message}</div>}
+            {proposal.message && <div className="kv muted">{proposal.message}</div>}
           </div>
         )}
       </div>
@@ -143,7 +143,7 @@ export function AgentTraceDetail({ agentSessionId }) {
               </div>
             </div>
           )}
-          {!agentActions.length && !buyerDecision && <div className="sysline">No agent actions yet.</div>}
+          {!agentActions.length && !buyerDecision && <div className="muted">No agent actions yet.</div>}
         </div>
       </div>
 
@@ -160,7 +160,7 @@ export function AgentTraceDetail({ agentSessionId }) {
             ))}
           </div>
         ) : (
-          <div className="sysline">No deterministic evaluation yet.</div>
+          <div className="muted">No deterministic evaluation yet.</div>
         )}
 
         <h3><CreditCard size={13} /> Payment</h3>
@@ -173,7 +173,7 @@ export function AgentTraceDetail({ agentSessionId }) {
         )}
         {!paid && razorpayTouched && <div className="kv">awaiting authorization / pending</div>}
         {!paid && !razorpayTouched && session.status !== 'completed' && (
-          <div className="kv" style={{ color: 'var(--muted)' }}>No payment attempted.</div>
+          <div className="muted">No payment attempted.</div>
         )}
       </div>
     </>
@@ -186,7 +186,7 @@ export default function MerchantAgentSection({ selected, onSelect }) {
     return (
       <>
         <h3><Bot size={13} /> Merchant Agent</h3>
-        <div className="sysline">No agent sessions yet.</div>
+        <div className="muted">No agent sessions yet.</div>
       </>
     )
   }
@@ -202,7 +202,7 @@ export default function MerchantAgentSection({ selected, onSelect }) {
           <div className="top">
             <span className="sid mono">{s.agent_session_id}</span>
           </div>
-          <span className={`badge ${STATUS_COLORS[s.last.payload?.status || ''] || ''}`} style={{ marginTop: 6, display: 'inline-block', fontSize: 10 }}>
+          <span className={`badge ${STATUS_COLORS[s.last.payload?.status || ''] || ''}`} style={{ marginTop: 4, display: 'inline-block' }}>
             {(s.last.payload?.reason_code || s.last.payload?.tool || '').replace(/_/g, ' ').slice(0, 40)}
           </span>
         </div>

@@ -220,7 +220,7 @@ def _llm_decide(state: MerchantAgentState) -> tuple[str, dict, str, Optional[str
     """
     from openai import OpenAI
 
-    client = OpenAI(base_url=settings.nim_base_url, api_key=settings.nim_api_key, timeout=45.0)
+    client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=45.0)
     messages = [
         {"role": "system", "content": prompts.SYSTEM_PROMPT},
         {"role": "user", "content": _transaction_state_note(state)},
@@ -230,7 +230,7 @@ def _llm_decide(state: MerchantAgentState) -> tuple[str, dict, str, Optional[str
     messages += state.llm_history
 
     resp = client.chat.completions.create(
-        model=settings.nim_model,
+        model=settings.llm_model,
         messages=messages,
         tools=[*_exposed_tool_schemas(state), prompts.FINISH_TOOL],
         temperature=0.2,

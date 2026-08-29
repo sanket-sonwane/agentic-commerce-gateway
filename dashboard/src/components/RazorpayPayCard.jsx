@@ -148,12 +148,11 @@ export default function RazorpayPayCard({ redirect, onPaid }) {
 
   if (paid) {
     return (
-      <div className="bill-card pay-card">
-        <div className="bill-head"><LockKeyhole size={14} /> Payment authorized</div>
-        <div className="ladder-row total" style={{ paddingTop: 4 }}><span>Paid</span><span>₹{paid.amount}</span></div>
+      <div className="pay-card">
+        <div className="pay-paid"><LockKeyhole size={16} /> Paid ₹{paid.amount}</div>
         {paid.saved && (
-          <div style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, color: 'var(--green)', marginTop: 8 }}>
-            💳 {paid.saved.network || 'Card'} ••••{paid.saved.last4} saved — future orders will be charged automatically.
+          <div className="pay-saved">
+            Card {paid.saved.network || ''} ••••{paid.saved.last4} saved — future orders charge automatically.
           </div>
         )}
       </div>
@@ -161,19 +160,23 @@ export default function RazorpayPayCard({ redirect, onPaid }) {
   }
 
   return (
-    <div className="bill-card pay-card">
-      <div className="bill-head"><LockKeyhole size={14} /> Authorize payment</div>
-      <div className="bill-line"><span>Razorpay test-mode charge</span><b>₹{redirect.amount}</b></div>
-      <div className="bill-actions">
-        <button className="btn primary" disabled={busy} onClick={openModal}>
-          {busy ? <><Loader2 size={15} /> Opening secure window…</> : <>Pay ₹{redirect.amount} securely</>}
-        </button>
+    <div className="pay-card">
+      <div className="pay-hero">
+        <span className="amt">₹{redirect.amount}</span>
+        <span className="secure"><LockKeyhole size={11} /> SECURE</span>
       </div>
+      <div className="pay-sub">Razorpay test-mode charge</div>
+      <button className="btn-pay" disabled={busy} onClick={openModal}>
+        {busy ? <><Loader2 size={15} /> Opening secure window…</> : <>Pay ₹{redirect.amount} securely</>}
+      </button>
       {redirect.save_card && !paid && (
-        <div className="pay-hint">💡 Use test card <b>4111 1111 1111 1111</b> (any future expiry/CVV, OTP any 4 digits). If auto-pay registration succeeds, every future order charges automatically with no window.</div>
+        <div className="pay-hint">
+          Test card: <b>4111 1111 1111 1111</b> (any future expiry/CVV, any OTP). If auto-pay registration
+          succeeds, future orders charge automatically.
+        </div>
       )}
-      {notice && <div className="bill-note" style={{ color: '#b45309' }}>{notice}</div>}
-      {error && <div className="bill-note">⚠ {error}</div>}
+      {notice && <div className="pay-note">{notice}</div>}
+      {error && <div className="pay-note" style={{ color: 'var(--red)' }}>{error}</div>}
     </div>
   )
 }

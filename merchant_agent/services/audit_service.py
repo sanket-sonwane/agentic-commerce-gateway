@@ -88,3 +88,24 @@ def verify_chain(db: Session) -> tuple[bool, int, int | None]:
             return False, len(events), event.seq
         prev_hash = event.hash
     return True, len(events), None
+
+
+def signed_head_anchor(db: Session) -> dict | None:
+    """AP2 P2: sign the current audit-chain head so suffix-rewrites are provable.
+
+    The signature is over the head hash only — it cannot prove the whole chain,
+    but it anchors the moment in time a given head was witnessed. Returns None
+    when there are no events yet.
+    """
+    head = db.execute(select(AuditEvent).order_by(AuditEvent.seq.desc()).limit(1)).scalar_one_or_none()
+    if head is None:
+        return None
+    from merchant_agent.services import crypto_service
+
+    payload = {"head_hash": head.hash, "seq": head.seq}
+    return {
+        "seq": head.seq,
+        "head_hash": head.hash,
+        "signature": crypto_service.sign(payload),
+        "key_id": crypto_service.key_id(),
+    }

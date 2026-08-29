@@ -122,12 +122,12 @@ def _fallback_parse(query: str) -> ParsedQuery:
 
 def _llm_parse(query: str) -> ParsedQuery | None:
     """Ask NIM to structure the request. Returns None on any failure."""
-    if not settings.nim_api_key:
+    if not settings.llm_api_key:
         return None
     try:
         from openai import OpenAI
 
-        client = OpenAI(base_url=settings.nim_base_url, api_key=settings.nim_api_key, timeout=10.0)
+        client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=10.0)
         prompt = (
             "Convert this Indian grocery shopping request into JSON.\n"
             'Schema: {"items":[{"keyword":"<single grocery noun, lowercase>","quantity":<int>}],'
@@ -139,7 +139,7 @@ def _llm_parse(query: str) -> ParsedQuery | None:
             "Reply with ONLY the JSON object."
         )
         resp = client.chat.completions.create(
-            model=settings.nim_model,
+            model=settings.llm_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=200,

@@ -81,7 +81,7 @@ def test_create_order_carries_mandate_block_when_saved(monkeypatch):
     assert "customer_id" not in captured and "token" not in captured
 
 
-def test_headless_charge_hits_payments_endpoint_with_token_contract(monkeypatch):
+def test_headless_charge_hits_recurring_endpoint_with_correct_contract(monkeypatch):
     _with_credentials(monkeypatch)
     calls: dict = {}
 
@@ -107,13 +107,40 @@ def test_headless_charge_hits_payments_endpoint_with_token_contract(monkeypatch)
     )
     assert outcome.status == "completed"
     assert outcome.payment_id == "pay_HEADLESS"
-    assert calls["url"].endswith("/v1/payments")
+    assert calls["url"].endswith("/payments/create/recurring")
     body = calls["payload"]
-    assert body["token_id"] == "token_HEADLESS"
+    assert body["token"] == "token_HEADLESS"
+    assert body["recurring"] is True
     assert body["customer_id"] == "cust_HEADLESS"
     assert body["order_id"] == "order_HEADLESS"
     assert body["amount"] == 50000
-    assert body["currency"] == "INR"
+    assert body["email"] and body["contact"]
+
+
+def test_headless_charge_retries_once_on_server_error(monkeypatch):
+    """SERVER_ERROR is transient: one retry, then the structured failure."""
+    _with_credentials(monkeypatch)
+    attempts = []
+
+    class FakeResp:
+        status_code = 500
+
+        def json(self):
+            return {"error": {"code": "SERVER_ERROR", "description": "try again shortly"}}
+
+    def fake_post(url, **kwargs):
+        attempts.append(kwargs.get("json"))
+        return FakeResp()
+
+    monkeypatch.setattr(payment_service.httpx, "post", fake_post)
+    monkeypatch.setattr(payment_service.time, "sleep", lambda s: None)
+
+    outcome = payment_service.charge_with_token(
+        "order_R", 50000, "cust_R", "token_R", buyer_agent_id=BUYER
+    )
+    assert len(attempts) == 2  # exactly one retry
+    assert outcome.status == "declined"
+    assert "try again" in outcome.message.lower()
 
 
 def test_classify_token_rejection():

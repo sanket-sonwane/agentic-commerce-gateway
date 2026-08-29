@@ -202,7 +202,7 @@ def replay(conversation_id: str):
 def health():
     return {
         "status": "ok",
-        "model": settings.nim_model,
+        "model": settings.buyer_llm_model,
         "buyer_agent_id": settings.buyer_agent_id,
         "merchant": settings.merchant_base_url,
     }

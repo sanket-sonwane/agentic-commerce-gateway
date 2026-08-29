@@ -8,10 +8,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # NVIDIA NIM
-    nim_api_key: str = ""
-    nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nim_model: str = "meta/llama-3.3-70b-instruct"
+    # LLM provider (Groq — OpenAI-compatible). Used by the merchant agent
+    # brain and the discovery query parser.
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.groq.com/openai/v1"
+    llm_model: str = "openai/gpt-oss-120b"
 
     # Razorpay test mode
     razorpay_key_id: str = ""
@@ -44,10 +45,19 @@ class Settings(BaseSettings):
     reservation_ttl_minutes: int = 10
 
     # Merchant Agent runtime (PRD §30 bounded autonomy; 8 recommended minimum,
-    # +2 headroom for reasoning-only turns under the NIM tool protocol)
+    # +2 headroom for reasoning-only turns under the LLM tool protocol)
     ma_llm_brain: bool = True  # False -> deterministic fallback brain (tests / offline demos)
     ma_max_iterations: int = 10
     ma_max_tool_calls: int = 10
+
+    # AP2 — merchant cryptographic identity (PRD §18–19)
+    merchant_id: str = "merchant_grocery_01"
+    merchant_key_id: str = "merchant-key-01"
+    # Optional: explicit path to the Ed25519 private key PEM. When empty, the
+    # key is load-or-generated under ./secrets/merchant_signing_key.pem
+    # (gitignored). The private key is never exposed.
+    merchant_signing_key_path: str = ""
+    mandate_ttl_minutes: int = 10  # Execution Mandate freshness window
 
     # Protocol identity
     protocol_version: str = "Agentic Commerce Protocol — Reference v0.1"

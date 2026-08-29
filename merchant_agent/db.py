@@ -80,3 +80,32 @@ def init_db() -> None:
     from merchant_agent.models import entities  # noqa: F401
 
     Base.metadata.create_all(engine)
+    _apply_migrations(engine)
+
+
+def _apply_migrations(engine) -> None:  # noqa: ANN001
+    """Idempotent column additions for pre-existing SQLite databases.
+
+    create_all() only creates missing tables; it never alters existing ones, so
+    new optional columns are added here with guarded ADD COLUMN statements.
+    """
+    import sqlalchemy as sa
+
+    cols = {
+        "checkout_sessions": [
+            # AP2 columns added after the original live DB was created.
+            ("authorized_amount_paise", "INTEGER NULL DEFAULT NULL"),
+            ("razorpay_order_amount", "INTEGER NULL DEFAULT NULL"),
+            ("execution_mandate_id", "VARCHAR NULL DEFAULT NULL"),
+        ],
+        "execution_mandates": [("consumed_at", "DATETIME NULL DEFAULT NULL")],
+    }
+    with engine.begin() as conn:
+        inspector = sa.inspect(conn)
+        for table, additions in cols.items():
+            if not inspector.has_table(table):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for name, ddl in additions:
+                if name not in existing:
+                    conn.execute(sa.text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))

@@ -1,74 +1,82 @@
 /* ============================================================
-   ACG design tokens — "Aurora Commerce" theme
-   Dark-first: deep-space canvas, emerald/violet aurora glows,
-   glass surfaces, gold reserved for paid moments.
+   ACG design tokens — "Clean Commerce" theme
+   Warm-neutral canvas, single indigo accent, green for success,
+   amber for payment moments, no aurora glows.
    ============================================================ */
 
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
 
-  /* aurora canvas */
-  --bg: #070b12;
-  --bg-soft: #0a0f18;
-  --glow-mint: rgba(45, 212, 167, 0.07);
-  --glow-violet: rgba(139, 123, 255, 0.09);
+  /* canvas */
+  --bg: #111318;
+  --bg-soft: #161920;
 
-  /* glass surfaces */
-  --surface: rgba(16, 22, 34, 0.72);
-  --surface-solid: #101622;
-  --surface-2: rgba(26, 33, 48, 0.65);
-  --surface-3: rgba(35, 44, 62, 0.55);
-  --border: rgba(126, 143, 176, 0.16);
-  --border-soft: rgba(126, 143, 176, 0.09);
+  /* surfaces */
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-solid: #1a1d24;
+  --surface-2: rgba(255, 255, 255, 0.04);
+  --surface-3: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.05);
 
   /* text */
-  --text: #eaf0f8;
-  --text-dim: #bcc7d8;
-  --muted: #8d9ab0;
-  --faint: #5e6a7e;
+  --text: #edf0f5;
+  --text-dim: #b0b8c8;
+  --muted: #6b7490;
+  --faint: #454d63;
 
-  /* accent duo */
-  --mint: #2dd4a7;
-  --mint-soft: rgba(45, 212, 167, 0.12);
-  --violet: #8b7bff;
-  --violet-soft: rgba(139, 123, 255, 0.14);
-  --gold: #e8c268;
-  --gold-soft: rgba(232, 194, 104, 0.13);
-  --coral: #ff6b6b;
-  --coral-soft: rgba(255, 107, 107, 0.11);
-  --amber: #fbbf24;
-  --amber-soft: rgba(251, 191, 36, 0.12);
+  /* accent — indigo */
+  --mint: #22c55e;
+  --mint-soft: rgba(34, 197, 94, 0.12);
+  --violet: #6366f1;
+  --violet-soft: rgba(99, 102, 241, 0.12);
+  --gold: #f59e0b;
+  --gold-soft: rgba(245, 158, 11, 0.12);
+  --coral: #ef4444;
+  --coral-soft: rgba(239, 68, 68, 0.10);
+  --amber: #f59e0b;
+  --amber-soft: rgba(245, 158, 11, 0.10);
 
-  /* legacy aliases (existing styles keep working) */
+  /* legacy aliases */
   --green: var(--mint);
   --green-soft: var(--mint-soft);
   --red: var(--coral);
   --red-soft: var(--coral-soft);
   --accent: var(--violet);
-  --accent-strong: #7a68ff;
+  --accent-strong: #5558e6;
   --accent-soft: var(--violet-soft);
-  --brand-grad: linear-gradient(135deg, #8b7bff 0%, #2dd4a7 100%);
+  --brand-grad: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
 
   /* chat */
-  --bubble-ai: rgba(23, 31, 46, 0.82);
-  --bubble-user: linear-gradient(135deg, #7a68ff, #5a8df2);
+  --bubble-ai: var(--surface-solid);
+  --bubble-user: var(--accent);
   --bubble-user-text: #ffffff;
 
   /* geometry + elevation */
+  --r-xs: 6px;
   --r-sm: 9px;
-  --r-md: 14px;
-  --r-lg: 20px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
   --r-full: 999px;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 8px 28px -10px rgba(0, 0, 0, 0.6);
-  --shadow-3: 0 20px 60px -14px rgba(0, 0, 0, 0.7);
-  --glow-mint-shadow: 0 0 14px -2px rgba(45, 212, 167, 0.45);
-  --glow-gold-shadow: 0 0 16px -3px rgba(232, 194, 104, 0.5);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 4px 16px -4px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 12px 40px -8px rgba(0, 0, 0, 0.6);
+  --glow-mint-shadow: 0 0 12px -2px rgba(34, 197, 94, 0.4);
+  --glow-gold-shadow: 0 0 12px -2px rgba(245, 158, 11, 0.4);
+
+  /* spacing */
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 16px;
+  --sp-lg: 24px;
+  --sp-xl: 32px;
 
   /* type */
   --font-head: 'Space Grotesk', 'Inter', system-ui, sans-serif;
   --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 
   /* motion */
   --ease: cubic-bezier(0.22, 0.8, 0.3, 1);
@@ -79,47 +87,45 @@
 [data-theme='light'] {
   color-scheme: light;
 
-  --bg: #f3f2ec;
-  --bg-soft: #edece4;
-  --glow-mint: rgba(13, 148, 116, 0.06);
-  --glow-violet: rgba(109, 94, 226, 0.07);
+  --bg: #f5f5f0;
+  --bg-soft: #eaeae4;
 
-  --surface: rgba(255, 255, 255, 0.78);
+  --surface: rgba(255, 255, 255, 0.75);
   --surface-solid: #ffffff;
-  --surface-2: rgba(246, 245, 240, 0.85);
-  --surface-3: rgba(233, 231, 222, 0.9);
-  --border: rgba(64, 74, 60, 0.14);
-  --border-soft: rgba(64, 74, 60, 0.08);
+  --surface-2: rgba(255, 255, 255, 0.55);
+  --surface-3: rgba(0, 0, 0, 0.04);
+  --border: rgba(0, 0, 0, 0.08);
+  --border-soft: rgba(0, 0, 0, 0.05);
 
-  --text: #1c2420;
-  --text-dim: #404c44;
-  --muted: #6b776e;
-  --faint: #98a299;
+  --text: #1a1d24;
+  --text-dim: #4a5060;
+  --muted: #7a8094;
+  --faint: #a0a8b8;
 
-  --mint: #0d946f;
-  --mint-soft: rgba(13, 148, 116, 0.1);
-  --violet: #6d5ee2;
-  --violet-soft: rgba(109, 94, 226, 0.1);
-  --gold: #a8842c;
-  --gold-soft: rgba(168, 132, 44, 0.12);
-  --coral: #d9534f;
-  --coral-soft: rgba(217, 83, 79, 0.09);
-  --amber: #b57e08;
-  --amber-soft: rgba(181, 126, 8, 0.1);
+  --mint: #16a34a;
+  --mint-soft: rgba(22, 163, 74, 0.10);
+  --violet: #4f46e5;
+  --violet-soft: rgba(79, 70, 229, 0.10);
+  --gold: #d97706;
+  --gold-soft: rgba(217, 119, 6, 0.10);
+  --coral: #dc2626;
+  --coral-soft: rgba(220, 38, 38, 0.08);
+  --amber: #d97706;
+  --amber-soft: rgba(217, 119, 6, 0.08);
 
   --green: var(--mint);
   --green-soft: var(--mint-soft);
   --red: var(--coral);
   --red-soft: var(--coral-soft);
   --accent: var(--violet);
-  --accent-strong: #5b4bd6;
+  --accent-strong: #4338ca;
   --accent-soft: var(--violet-soft);
-  --brand-grad: linear-gradient(135deg, #6d5ee2 0%, #0d946f 100%);
+  --brand-grad: linear-gradient(135deg, #4f46e5 0%, #818cf8 100%);
 
-  --bubble-ai: rgba(255, 255, 255, 0.86);
-  --bubble-user: linear-gradient(135deg, #6d5ee2, #4f8fd9);
+  --bubble-ai: #ffffff;
+  --bubble-user: var(--accent);
 
-  --shadow-1: 0 1px 2px rgba(28, 36, 32, 0.1);
-  --shadow-2: 0 8px 26px -10px rgba(28, 36, 32, 0.25);
-  --shadow-3: 0 20px 56px -16px rgba(28, 36, 32, 0.32);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-2: 0 4px 16px -4px rgba(0, 0, 0, 0.12);
+  --shadow-3: 0 12px 40px -8px rgba(0, 0, 0, 0.16);
 }

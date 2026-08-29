@@ -226,7 +226,7 @@ function OrderReady({ item, busy, onDecide, onRequestOps }) {
   return (
     <div className="msg-row ai">
       <div className="avatar"><Basket /></div>
-      <div className="msg-body" style={{ maxWidth: 400 }}>
+      <div className="msg-body">
         <div className="bubble ai-tail order-bubble">
           <p style={{ margin: '0 0 4px' }}>Your order is ready:</p>
           <ul className="items">
@@ -245,7 +245,7 @@ function OrderReady({ item, busy, onDecide, onRequestOps }) {
             <button className="why-link" onClick={() => onWhy?.(ev.checkout_session_id)}>
               <Eye size={12} /> Why this total?
             </button>
-            <button className="why-link" style={{ marginLeft: 14 }} onClick={() => onRequestOps?.(ev.checkout_session_id)}>
+            <button className="why-link" onClick={() => onRequestOps?.(ev.checkout_session_id)}>
               <Eye size={12} /> Full trail
             </button>
           </div>
@@ -274,8 +274,8 @@ function SwapOffer({ item, busy, onChoose }) {
   return (
     <div className="msg-row ai">
       <div className="avatar"><Swap /></div>
-      <div className="msg-body" style={{ maxWidth: 420 }}>
-        <div className="bubble ai-tail order-bubble">
+      <div className="msg-body">
+        <div className="bubble ai-tail order-bubble swap-bubble">
           <p style={{ margin: '0 0 2px' }}>
             {(ev.original_name || prop.name)} isn't available right now{ev.proposal?.reason_code === 'requested_pack_unavailable' ? '' : ''}.
           </p>
@@ -345,6 +345,6 @@ function Basket() {
 /* ---------------------------------------------- payment slot (the money card) */
 
 function PaymentSlot({ ev }) {
-  return <div style={{ marginLeft: 38, marginTop: 4 }}><PaymentCard redirect={ev} /></div>
+  return <div className="pay-card-wrapper"><PaymentCard redirect={ev} /></div>
 }
 

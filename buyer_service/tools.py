@@ -70,14 +70,32 @@ class MerchantClient:
         r = httpx.get(f"{self.base}/checkout_sessions/{checkout_session_id}", timeout=30)
         return r.status_code, r.json()
 
+    def create_intent_mandate(
+        self, intent: str, delegation_token: str | None = None, constraints_override: dict | None = None
+    ) -> tuple[int, dict]:
+        """Create + sign an AP2 Intent Mandate defining the buyer's authorized scope."""
+        r = httpx.post(
+            f"{self.base}/mandates/intents",
+            json={
+                "buyer_agent_id": settings.buyer_agent_id,
+                "delegation_token": delegation_token or settings.delegation_token,
+                "intent": intent,
+                "constraints_override": constraints_override,
+            },
+            timeout=30,
+        )
+        return r.status_code, r.json()
+
     def complete_checkout(
-        self, checkout_session_id: str, delegation_token: str | None = None
+        self, checkout_session_id: str, delegation_token: str | None = None,
+        intent_mandate_id: str | None = None,
     ) -> tuple[int, dict]:
         r = httpx.post(
             f"{self.base}/checkout_sessions/{checkout_session_id}/complete",
             json={
                 "buyer_agent_id": settings.buyer_agent_id,
                 "delegation_token": delegation_token or settings.delegation_token,
+                "intent_mandate_id": intent_mandate_id,
             },
             headers=self._headers(f"comp_{uuid.uuid4().hex[:12]}"),
             timeout=60,

@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import os
+import time
 import uuid
 from dataclasses import dataclass, field
 
@@ -287,19 +288,39 @@ def charge_with_token(
                 "charge outside tests"
             )
         return execute_sim_capture(order_id, amount_paise // 100)
-    try:
-        resp = httpx.post(
-            "https://api.razorpay.com/v1/payments",
+    email, contact = _customer_identity(buyer_agent_id)
+
+    def _post_recurring() -> httpx.Response:
+        return httpx.post(
+            "https://api.razorpay.com/v1/payments/create/recurring",
             json={
+                "email": email,
+                "contact": contact,
                 "amount": amount_paise,
                 "currency": "INR",
                 "order_id": order_id,
                 "customer_id": customer_id,
-                "token_id": token_id,
+                "token": token_id,
+                "recurring": True,
+                "description": "Agentic Commerce Gateway order",
             },
             auth=(settings.razorpay_key_id, settings.razorpay_key_secret),
             timeout=30,
         )
+
+    try:
+        resp = _post_recurring()
+        # SERVER_ERROR is transient by definition ("try again shortly") — one
+        # short-backoff retry before giving up, without duplicating money risk
+        # (a failed 5xx never created a payment).
+        body_probe = {}
+        try:
+            body_probe = resp.json()
+        except Exception:  # noqa: BLE001
+            pass
+        if resp.status_code >= 500 and str(body_probe.get("error", {}).get("code", "")) == "SERVER_ERROR":
+            time.sleep(3)
+            resp = _post_recurring()
     except Exception as exc:  # noqa: BLE001 — network-level uncertainty
         return PaymentOutcome(
             status="pending",

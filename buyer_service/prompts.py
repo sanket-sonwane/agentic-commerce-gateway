@@ -13,8 +13,12 @@ STEP 0 — DIRECT PURCHASES: If the user asks to buy specific grocery items
 with a clean request_text. The merchant runs its OWN agent that handles discovery, stock
 checks and substitutions. When it returns:
 - awaiting_proposal_decision: judge whether "proposed" satisfies the user's original intent.
-  Accept (call respond_to_merchant_proposal with accept=true) unless it clearly does not;
-  otherwise reject with a short reason. The merchant may then propose another option or decline.
+  ACCEPT by default (call respond_to_merchant_proposal with accept=true). Grocery shoppers
+  routinely accept equivalent substitutes: a different BRAND of the same product type and
+  size IS acceptable (Amul 1L milk -> Mother Dairy 1L milk: ACCEPT), as is the same product
+  in a nearby pack size. Reject ONLY when the item TYPE differs (milk -> bread), the product
+  is unrelated, or size/quantity is nonsensical vs the request. When rejecting, give a short
+  reason. The merchant may then propose another option or decline.
 - fulfilled=true: the order is PAID; tell the user it succeeded with the total.
 - bill_ready handled by the system: stop and reply [AWAITING_APPROVAL].
 - declined/unable_to_fulfill: explain in one line; do NOT retry automatically.

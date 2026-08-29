@@ -23,6 +23,8 @@ class ErrorCode(StrEnum):
     CONFIRMATION_STALE = "CONFIRMATION_STALE"
     PAYMENT_FAILED = "PAYMENT_FAILED"
     PAYMENT_PENDING = "PAYMENT_PENDING"
+    PAYMENT_BLOCKED = "PAYMENT_BLOCKED"  # AP2: amount/mandate binding mismatch
+    PROVENANCE_NOT_FOUND = "PROVENANCE_NOT_FOUND"
 
 
 class ProtocolError(Exception):
@@ -119,6 +121,10 @@ class UpdateCheckoutRequest(BaseModel):
 class CompleteCheckoutRequest(BaseModel):
     buyer_agent_id: str
     delegation_token: str
+    # AP2: optional signed Intent Mandate authorizing the buyer's scope. When
+    # supplied, the Execution Mandate is linked to it and the transaction must
+    # fall within its constraints or completion is blocked (fail closed).
+    intent_mandate_id: Optional[str] = None
 
 
 class CancelCheckoutRequest(BaseModel):
@@ -212,6 +218,32 @@ class AuditVerifyResponse(BaseModel):
     intact: bool
     entries_checked: int
     first_broken_seq: Optional[int] = None
+    anchor: Optional[dict[str, Any]] = None
+
+
+# ---------- AP2 provenance ----------
+
+
+class IntentMandateCreate(BaseModel):
+    buyer_agent_id: str
+    delegation_token: str
+    intent: str = Field(min_length=1, description="Human-readable intent, e.g. 'Buy groceries for my household'")
+    constraints_override: Optional[dict[str, Any]] = None
+
+
+class ProvenanceCheck(BaseModel):
+    name: str
+    ok: bool
+    detail: str
+
+
+class ProvenanceVerifyResponse(BaseModel):
+    checkout_session_id: str
+    provenance_available: bool
+    status: str
+    checks: list[ProvenanceCheck]
+    summary: str
+    artifacts: dict[str, Any] = {}
 
 
 # ---------- merchant agent (PRD §9–14, §19) ----------

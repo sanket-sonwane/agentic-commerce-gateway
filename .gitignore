@@ -7,6 +7,9 @@ __pycache__/
 # Secrets — NEVER commit
 .env
 
+# AP2 merchant Ed25519 signing key (load-or-generated)
+secrets/
+
 # Runtime data / logs
 data/
 *.log

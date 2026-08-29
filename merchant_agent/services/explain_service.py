@@ -28,6 +28,11 @@ ACTION_SENTENCES = {
     "checkout_completed": "The order was completed.",
     "checkout_cancelled": "The order was cancelled; reserved stock was released.",
     "inventory_adjusted": "An operator adjusted inventory mid-transaction.",
+    "execution_mandate_created": "The exact transaction was frozen in a signed Execution Mandate before payment.",
+    "decision_receipt_issued": "A signed Decision Receipt bound the mandate, policy and payment.",
+    "payment_amount_mismatch": "A payment was BLOCKED because the settled amount did not match the authorized amount.",
+    "intent_mandate_created": "A signed Intent Mandate defined the buyer's authorized scope.",
+    "intent_scope_verified": "The transaction was confirmed to stay within the buyer's signed Intent Mandate scope before payment.",
 }
 
 

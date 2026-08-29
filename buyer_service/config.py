@@ -5,9 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class BuyerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    nim_api_key: str = ""
-    nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nim_model: str = "meta/llama-3.3-70b-instruct"
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.groq.com/openai/v1"
+    buyer_llm_model: str = "openai/gpt-oss-20b"
 
     buyer_agent_id: str = "buyer_agent_llm_01"
     delegation_token: str = "dlg_9f8e7d"

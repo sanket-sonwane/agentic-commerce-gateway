@@ -139,7 +139,7 @@ export default function PaymentCard({ redirect, onPaid }) {
         <div className="pay-paid"><BadgeCheck size={18} /> Paid ₹{paid.amount}</div>
         {paid.saved && (
           <div className="pay-saved">
-            💳 {paid.saved.network || 'Card'} ••••{paid.saved.last4} saved — future orders charge automatically.
+            Card {paid.saved.network || ''} ••••{paid.saved.last4} saved — future orders charge automatically.
           </div>
         )}
       </div>
