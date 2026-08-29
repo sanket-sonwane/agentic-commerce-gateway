@@ -10,13 +10,13 @@ sequences through the production loop/tools — no prompt-dependent behavior.
 """
 import json
 
-import merchant_agent.agent.loop as loop_mod
-from merchant_agent.agent.loop import MerchantAgent, _exposed_tool_schemas, _transaction_state_note
-from merchant_agent.agent.state import MerchantAgentState, new_session_id
-from merchant_agent.agent import tools as agent_tools
-from merchant_agent.config import settings
-from merchant_agent.db import mutate, SessionLocal
-from merchant_agent.models.entities import CheckoutSession, Pack
+import merchant.agent.loop as loop_mod
+from merchant.agent.loop import MerchantAgent, _exposed_tool_schemas, _transaction_state_note
+from merchant.agent.state import MerchantAgentState, new_session_id
+from merchant.agent import tools as agent_tools
+from merchant.config import settings
+from merchant.persistence.db import mutate, SessionLocal
+from merchant.persistence.models.entities import CheckoutSession, Pack
 
 BUYER = "buyer_agent_llm_01"
 DELEGATION = "dlg_9f8e7d"
@@ -44,7 +44,7 @@ def _zero_stock(pack_id: str):
 
 
 def _audit_payloads(agent_session_id: str):
-    from merchant_agent.services import audit_service
+    from merchant.evidence import audit_service
 
     db = SessionLocal()
     try:
@@ -394,7 +394,7 @@ def test_request_confirmation_rejects_doomed_quantities():
 def client_verify_intact():
     from fastapi.testclient import TestClient
 
-    from merchant_agent.main import app
+    from merchant.main import app
 
     with TestClient(app, raise_server_exceptions=False) as c:
         return c.get("/audit_logs/verify").json()["intact"]
@@ -406,8 +406,8 @@ def client_verify_intact():
 def test_buyer_decision_grants_fresh_iteration_window(client):
     """A pre-pause dithered session must still complete after the buyer
     accepts: the resume leg gets its own window (tool caps stay global)."""
-    from merchant_agent.agent.state import get_session_state
-    from merchant_agent.config import settings as cfg
+    from merchant.agent.state import get_session_state
+    from merchant.config import settings as cfg
 
     _zero_stock(MILK_1L["pack_id"])
     body = _start(client, "agent_completed", request="Buy 1L Amul milk")
@@ -427,8 +427,8 @@ def test_buyer_decision_grants_fresh_iteration_window(client):
 
 
 def test_budget_windows_are_hard_capped(client, monkeypatch):
-    from merchant_agent.agent.state import get_session_state
-    from merchant_agent.config import settings as cfg
+    from merchant.agent.state import get_session_state
+    from merchant.config import settings as cfg
 
     _zero_stock(MILK_1L["pack_id"])
     body = _start(client, "agent_completed", request="Buy 1L Amul milk")
@@ -485,7 +485,7 @@ def test_finish_completed_accepted_only_after_real_payment(client, monkeypatch):
     csid = state.checkout_session_id
 
     # gateway-confirmed completion (sim capture) recorded in the DB
-    from merchant_agent.models.entities import CheckoutSession
+    from merchant.persistence.models.entities import CheckoutSession
 
     with mutate() as db:
         cs = db.get(CheckoutSession, csid)
@@ -570,8 +570,8 @@ def test_spend_limit_rejection_through_agent_path(client):
 
 
 def test_payment_pending_surfaces_as_non_success(client, monkeypatch):
-    from merchant_agent.services import payment_service as ps
-    from merchant_agent.services.payment_service import PaymentOutcome
+    from merchant.payment import payment_service as ps
+    from merchant.payment.payment_service import PaymentOutcome
 
     def forced_pending(order_id, amount_rupees):
         return PaymentOutcome(

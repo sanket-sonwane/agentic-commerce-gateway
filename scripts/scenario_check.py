@@ -1,7 +1,7 @@
 """Quick end-to-end scenario smoke test (dev helper, not pytest)."""
 from fastapi.testclient import TestClient
 
-from merchant_agent.main import app
+from merchant.main import app
 
 H = {"X-Admin-Token": "admin_demo_token"}
 

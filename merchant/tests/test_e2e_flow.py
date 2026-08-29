@@ -8,13 +8,13 @@ chain and the append-only audit trail as one journey.
 """
 import json
 
-from merchant_agent.db import mutate
-from merchant_agent.models.entities import (
+from merchant.persistence.db import mutate
+from merchant.persistence.models.entities import (
     CheckoutSession,
     DecisionReceipt,
     ExecutionMandate,
 )
-from merchant_agent.tests.conftest import make_checkout
+from merchant.tests.conftest import make_checkout
 
 BUYER = "buyer_agent_llm_01"
 DLG = "dlg_9f8e7d"
@@ -153,7 +153,7 @@ def test_e2e_tampered_persisted_total_detected_in_provenance(client):
         t["total"] = t["total"] + 1
         cs.totals = json.dumps(t)
         em = db.get(ExecutionMandate, cs.execution_mandate_id)
-        from merchant_agent.services import authorization_service
+        from merchant.ap2 import authorization_service
         checks = authorization_service.verify_execution_mandate(
             db, em, cs, buyer_agent_id=BUYER
         )

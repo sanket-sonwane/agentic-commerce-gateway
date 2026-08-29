@@ -7,10 +7,10 @@ Covers the three coordinator gaps identified in the audit:
 """
 import json
 
-from merchant_agent.db import mutate
-from merchant_agent.models.entities import CheckoutSession, ExecutionMandate
-from merchant_agent.services import authorization_service, crypto_service
-from merchant_agent.tests.conftest import make_checkout
+from merchant.persistence.db import mutate
+from merchant.persistence.models.entities import CheckoutSession, ExecutionMandate
+from merchant.ap2 import authorization_service, crypto_service
+from merchant.tests.conftest import make_checkout
 
 BUYER = "buyer_agent_llm_01"
 DLG = "dlg_9f8e7d"

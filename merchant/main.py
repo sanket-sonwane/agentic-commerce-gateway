@@ -11,12 +11,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from merchant_agent.api import admin, agent, audit, checkout, discovery, provenance
-from merchant_agent.config import settings
-from merchant_agent.db import init_db
-from merchant_agent.models.dto import ErrorCode, ProtocolError
+from merchant.api import admin, agent, audit, checkout, discovery, provenance
+from merchant.config import settings
+from merchant.persistence.db import init_db
+from merchant.persistence.models.dto import ErrorCode, ProtocolError
 
-logger = logging.getLogger("merchant_agent")
+logger = logging.getLogger("merchant")
 
 
 @asynccontextmanager
@@ -97,7 +97,7 @@ def main() -> None:
     import uvicorn
 
     uvicorn.run(
-        "merchant_agent.main:app",
+        "merchant.main:app",
         host="0.0.0.0",
         port=settings.merchant_port,
         reload=False,

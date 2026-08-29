@@ -1,7 +1,7 @@
 """Audit trail + hash chain integrity tests (PRD §31–32) and error contract (§27)."""
-from merchant_agent.db import mutate
-from merchant_agent.models.entities import AuditEvent
-from merchant_agent.tests.conftest import complete, make_checkout
+from merchant.persistence.db import mutate
+from merchant.persistence.models.entities import AuditEvent
+from merchant.tests.conftest import complete, make_checkout
 
 
 def test_critical_events_recorded(client):

@@ -17,11 +17,11 @@ import logging
 import re
 from typing import Any, Optional
 
-from merchant_agent.agent import prompts, tools
-from merchant_agent.agent.state import MerchantAgentState
-from merchant_agent.config import settings
+from merchant.agent import prompts, tools
+from merchant.agent.state import MerchantAgentState
+from merchant.config import settings
 
-logger = logging.getLogger("merchant_agent.agent")
+logger = logging.getLogger("merchant.agent")
 
 # Model-compat (F1): some models occasionally emit tool-call syntax or planning
 # prose as plain text instead of a structured tool_calls response.
@@ -60,8 +60,8 @@ def _audit(
     rules_fired: list[str] | None = None,
 ) -> None:
     """Append one durable audit event (short-lived mutation session)."""
-    from merchant_agent.db import mutate
-    from merchant_agent.services import audit_service
+    from merchant.persistence.db import mutate
+    from merchant.evidence import audit_service
 
     body = {
         "agent_session_id": state.agent_session_id,
@@ -96,8 +96,8 @@ class _Finish(Exception):
 
 
 def _initial_context(state: MerchantAgentState) -> str:
-    from merchant_agent.db import SessionLocal
-    from merchant_agent.services import delegation_service
+    from merchant.persistence.db import SessionLocal
+    from merchant.control import delegation_service
 
     parts = [
         f"BUYER REQUEST: {state.buyer_request}",
@@ -842,8 +842,8 @@ class MerchantAgent:
     def _live_checkout_status(self, state: MerchantAgentState) -> Optional[str]:
         if not state.checkout_session_id:
             return None
-        from merchant_agent.db import SessionLocal
-        from merchant_agent.models.entities import CheckoutSession
+        from merchant.persistence.db import SessionLocal
+        from merchant.persistence.models.entities import CheckoutSession
 
         db = SessionLocal()
         try:
@@ -892,8 +892,8 @@ class MerchantAgent:
 
     def _confirm_terms(self, state: MerchantAgentState, proposal: dict) -> None:
         """Buyer accepted changed terms (price change) -> confirm and continue."""
-        from merchant_agent.db import mutate
-        from merchant_agent.services import checkout_service
+        from merchant.persistence.db import mutate
+        from merchant.domain import checkout_service
 
         version = int((proposal.get("proposal") or {}).get("version", 0))
         with mutate() as db:
@@ -917,8 +917,8 @@ class MerchantAgent:
 
     def _reject_terms(self, state: MerchantAgentState) -> None:
         """Buyer declined new terms -> cancel session, graceful decline."""
-        from merchant_agent.db import mutate
-        from merchant_agent.services import checkout_service
+        from merchant.persistence.db import mutate
+        from merchant.domain import checkout_service
 
         with mutate() as db:
             checkout_service.cancel_checkout(

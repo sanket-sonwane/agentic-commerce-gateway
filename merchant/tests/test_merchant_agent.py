@@ -5,11 +5,11 @@ hermetic; the LLM brain shares the same tool registry and loop contracts.
 """
 import json
 
-from merchant_agent.agent import tools as agent_tools
-from merchant_agent.agent.state import MerchantAgentState, get_session_state, new_session_id
-from merchant_agent.agent.loop import MerchantAgent
-from merchant_agent.db import mutate
-from merchant_agent.models.entities import AuditEvent, CheckoutSession, Pack
+from merchant.agent import tools as agent_tools
+from merchant.agent.state import MerchantAgentState, get_session_state, new_session_id
+from merchant.agent.loop import MerchantAgent
+from merchant.persistence.db import mutate
+from merchant.persistence.models.entities import AuditEvent, CheckoutSession, Pack
 
 
 BUYER = "buyer_agent_llm_01"
@@ -40,8 +40,8 @@ def _make_state(request: str, mode="agent_completed", items=None) -> MerchantAge
 
 
 def _audit_payloads(agent_session_id: str):
-    from merchant_agent.db import SessionLocal
-    from merchant_agent.services import audit_service
+    from merchant.persistence.db import SessionLocal
+    from merchant.evidence import audit_service
 
     db = SessionLocal()
     try:
@@ -91,7 +91,7 @@ def test_requested_pack_unavailable_proposes_alternative_then_accept_completes()
     _zero_stock("pack_milk_amul_1l")
     from fastapi.testclient import TestClient
 
-    from merchant_agent.main import app
+    from merchant.main import app
 
     with TestClient(app, raise_server_exceptions=False) as client:
         created = client.post(
@@ -171,7 +171,7 @@ def test_buyer_rejects_first_alternative_then_next_offered_or_clean_decline():
     _zero_stock("pack_milk_amul_1l")
     from fastapi.testclient import TestClient
 
-    from merchant_agent.main import app
+    from merchant.main import app
 
     with TestClient(app, raise_server_exceptions=False) as client:
         body = client.post(
@@ -247,7 +247,7 @@ def test_stock_vanish_after_checkout_final_validation_blocks_payment(client, adm
 
 
 def test_iteration_budget_exhaustion_is_safe(monkeypatch):
-    from merchant_agent.config import settings
+    from merchant.config import settings
 
     monkeypatch.setattr(settings, "ma_max_iterations", 1)
     state = _make_state(
@@ -259,7 +259,7 @@ def test_iteration_budget_exhaustion_is_safe(monkeypatch):
 
 
 def test_tool_registry_validates_hallucinated_ids():
-    from merchant_agent.db import SessionLocal
+    from merchant.persistence.db import SessionLocal
 
     state = _make_state("x")
     db = SessionLocal()
@@ -283,7 +283,7 @@ def test_tool_registry_validates_hallucinated_ids():
 
 
 def test_price_and_inventory_are_server_authoritative():
-    from merchant_agent.db import SessionLocal
+    from merchant.persistence.db import SessionLocal
 
     state = _make_state(
         "x",
@@ -303,7 +303,7 @@ def test_price_and_inventory_are_server_authoritative():
 
 
 def test_request_completion_blocked_in_buyer_completes_mode():
-    from merchant_agent.db import SessionLocal
+    from merchant.persistence.db import SessionLocal
 
     state = _make_state("x", mode="buyer_completes")
     db = SessionLocal()

@@ -47,7 +47,7 @@ def main() -> None:
 
     seed_main()
     print("Demo reset complete. Start the stack:")
-    print("  .venv\\Scripts\\python.exe -m uvicorn merchant_agent.main:app --port 8000")
+    print("  .venv\\Scripts\\python.exe -m uvicorn merchant.main:app --port 8000")
     print("  .venv\\Scripts\\python.exe -m buyer_service.main")
     print("  cd dashboard && npm run dev")
 

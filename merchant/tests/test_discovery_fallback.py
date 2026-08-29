@@ -1,6 +1,6 @@
 """Discovery fallback parser tests (deterministic, no LLM)."""
-from merchant_agent.db import SessionLocal
-from merchant_agent.services.discovery_service import _fallback_parse, discover
+from merchant.persistence.db import SessionLocal
+from merchant.domain.discovery_service import _fallback_parse, discover
 
 
 def test_budget_extraction():

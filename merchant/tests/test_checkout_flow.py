@@ -1,13 +1,13 @@
 """Checkout flow tests: price-change -> confirmation, stale confirmation, update semantics."""
 import json
 
-from merchant_agent.tests.conftest import complete, make_checkout
+from merchant.tests.conftest import complete, make_checkout
 
 
 def _set_price(admin_headers, pack_id, price, client):
     # operator-style price change via direct DB (no public price endpoint by design)
-    from merchant_agent.db import mutate
-    from merchant_agent.models.entities import Pack
+    from merchant.persistence.db import mutate
+    from merchant.persistence.models.entities import Pack
 
     with mutate() as db:
         db.get(Pack, pack_id).price = price

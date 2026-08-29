@@ -3,13 +3,13 @@ import json
 
 from sqlalchemy.orm import Session
 
-from merchant_agent.models.entities import (
+from merchant.persistence.models.entities import (
     CheckoutSession,
     DecisionReceipt,
     ExecutionMandate,
     PolicyDecision,
 )
-from merchant_agent.services import authorization_service, crypto_service
+from merchant.ap2 import authorization_service, crypto_service
 
 
 def _provenance_available(checkout_session: CheckoutSession, mandate: ExecutionMandate | None) -> bool:
@@ -25,7 +25,7 @@ def verify_provenance(db: Session, checkout_session_id: str) -> dict:
     """
     cs = db.get(CheckoutSession, checkout_session_id)
     if cs is None:
-        from merchant_agent.models.dto import ErrorCode, ProtocolError
+        from merchant.persistence.models.dto import ErrorCode, ProtocolError
 
         raise ProtocolError(
             ErrorCode.CHECKOUT_NOT_FOUND,
@@ -76,7 +76,7 @@ def verify_provenance(db: Session, checkout_session_id: str) -> dict:
     })
 
     # 3. Cart hash matches the session basket
-    from merchant_agent.services.checkout_service import computes_cart_hash
+    from merchant.domain.checkout_service import computes_cart_hash
 
     checks.append({
         "name": "cart_binding",
@@ -86,7 +86,7 @@ def verify_provenance(db: Session, checkout_session_id: str) -> dict:
 
     # 3b. If linked to an Intent Mandate, execution must stay within its signed
     # scope (RE-3): amount + category + quantity bounds from the buyer's intent.
-    from merchant_agent.services.authorization_service import verify_intent_scope
+    from merchant.ap2.authorization_service import verify_intent_scope
 
     if mandate.intent_mandate_id:
         scope_ok, scope_detail = verify_intent_scope(

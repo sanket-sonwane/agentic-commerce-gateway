@@ -11,10 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from merchant_agent.db import SessionLocal, init_db, utcnow  # noqa: E402
-from merchant_agent.models.entities import Delegation, Pack, Product  # noqa: E402
+from merchant.persistence.db import SessionLocal, init_db, utcnow  # noqa: E402
+from merchant.persistence.models.entities import Delegation, Pack, Product  # noqa: E402
 
-CATALOG_PATH = ROOT / "merchant_agent" / "seed" / "catalog.json"
+CATALOG_PATH = ROOT / "merchant" / "seed" / "catalog.json"
 
 ALLOWED_CATEGORIES = [
     "dairy",

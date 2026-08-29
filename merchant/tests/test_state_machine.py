@@ -1,5 +1,5 @@
 """State machine + terminal-state protection tests (PRD §14)."""
-from merchant_agent.tests.conftest import complete, make_checkout
+from merchant.tests.conftest import complete, make_checkout
 
 INVALID_COMPLETIONS = ["completed", "declined", "cancelled"]
 

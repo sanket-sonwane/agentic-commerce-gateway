@@ -4,12 +4,13 @@ import json
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from merchant_agent.config import settings
-from merchant_agent.db import mutate, read_only
-from merchant_agent.models.dto import IntentMandateCreate
-from merchant_agent.services import audit_service, authorization_service, crypto_service
-from merchant_agent.services.delegation_service import validate_delegation
-from merchant_agent.services.provenance_service import verify_provenance
+from merchant.config import settings
+from merchant.persistence.db import mutate, read_only
+from merchant.persistence.models.dto import IntentMandateCreate
+from merchant.ap2 import authorization_service, crypto_service
+from merchant.evidence import audit_service
+from merchant.control.delegation_service import validate_delegation
+from merchant.ap2.provenance_service import verify_provenance
 
 router = APIRouter()
 

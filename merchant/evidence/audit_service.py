@@ -11,8 +11,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from merchant_agent.db import utcnow
-from merchant_agent.models.entities import AuditEvent
+from merchant.persistence.db import utcnow
+from merchant.persistence.models.entities import AuditEvent
 
 
 def _canonical(event: AuditEvent) -> str:
@@ -100,7 +100,7 @@ def signed_head_anchor(db: Session) -> dict | None:
     head = db.execute(select(AuditEvent).order_by(AuditEvent.seq.desc()).limit(1)).scalar_one_or_none()
     if head is None:
         return None
-    from merchant_agent.services import crypto_service
+    from merchant.ap2 import crypto_service
 
     payload = {"head_hash": head.hash, "seq": head.seq}
     return {

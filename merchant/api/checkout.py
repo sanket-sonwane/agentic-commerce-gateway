@@ -6,8 +6,8 @@ raised OUTSIDE db.mutate() so committed decline states + audit events persist.
 from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy.orm import Session
 
-from merchant_agent.db import mutate, read_only
-from merchant_agent.models.dto import (
+from merchant.persistence.db import mutate, read_only
+from merchant.persistence.models.dto import (
     CancelCheckoutRequest,
     CompleteCheckoutRequest,
     CompleteResponse,
@@ -19,7 +19,8 @@ from merchant_agent.models.dto import (
     ProtocolError,
     UpdateCheckoutRequest,
 )
-from merchant_agent.services import checkout_service, payment_service
+from merchant.domain import checkout_service
+from merchant.payment import payment_service
 
 router = APIRouter()
 
@@ -210,8 +211,8 @@ def payment_callback(checkout_session_id: str, body: dict):
                 http_status=400, retryable=False,
             )
         else:
-            from merchant_agent.services import audit_service
-            from merchant_agent.services.payment_service import PaymentOutcome
+            from merchant.evidence import audit_service
+            from merchant.payment.payment_service import PaymentOutcome
 
             # AP2 amount binding: the settled payment must equal the amount the
             # Execution Mandate authorized, and that must equal the Razorpay order.

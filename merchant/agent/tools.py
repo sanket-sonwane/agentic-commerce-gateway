@@ -22,12 +22,13 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
-from merchant_agent.agent.state import MerchantAgentState
-from merchant_agent.config import settings
-from merchant_agent.db import SessionLocal, mutate
-from merchant_agent.models.dto import ErrorCode, ProtocolError
-from merchant_agent.models.entities import Pack, Product
-from merchant_agent.services import checkout_service, delegation_service, discovery_service, inventory_service
+from merchant.agent.state import MerchantAgentState
+from merchant.config import settings
+from merchant.persistence.db import SessionLocal, mutate
+from merchant.persistence.models.dto import ErrorCode, ProtocolError
+from merchant.persistence.models.entities import Pack, Product
+from merchant.control import delegation_service
+from merchant.domain import checkout_service, discovery_service, inventory_service
 
 READ_TOOLS = {
     "search_catalog",
@@ -586,7 +587,7 @@ def _tool_cancel_checkout(db: Session, state: MerchantAgentState, checkout_sessi
 
 def _tool_run_gating(db: Session, state: MerchantAgentState, checkout_session_id: str | None = None) -> dict:
     """Dry-run of the deterministic engine. The agent cannot modify the result."""
-    from merchant_agent.services import gating_service
+    from merchant.control import gating_service
 
     csid = str(checkout_session_id or state.checkout_session_id or "")
     preview_of = "existing checkout"

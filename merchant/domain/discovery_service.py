@@ -10,9 +10,9 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from merchant_agent.config import settings
-from merchant_agent.models.entities import Pack, Product
-from merchant_agent.services import audit_service
+from merchant.config import settings
+from merchant.persistence.models.entities import Pack, Product
+from merchant.evidence import audit_service
 
 STOPWORDS = {
     "a", "an", "the", "for", "and", "or", "under", "below", "less", "than",

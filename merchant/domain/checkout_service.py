@@ -11,9 +11,9 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from merchant_agent.config import settings
-from merchant_agent.db import mutate, read_only, utcnow
-from merchant_agent.models.dto import (
+from merchant.config import settings
+from merchant.persistence.db import mutate, read_only, utcnow
+from merchant.persistence.models.dto import (
     CheckoutSessionOut,
     CompleteResponse,
     ErrorCode,
@@ -21,7 +21,7 @@ from merchant_agent.models.dto import (
     ProtocolError,
     ReservationInfo,
 )
-from merchant_agent.models.entities import (
+from merchant.persistence.models.entities import (
     AuditEvent,
     CheckoutSession,
     IdempotencyKey,
@@ -30,9 +30,11 @@ from merchant_agent.models.entities import (
     Product,
     Reservation,
 )
-from merchant_agent.services import audit_service, gating_service, inventory_service
-from merchant_agent.services.delegation_service import validate_delegation
-from merchant_agent.services.payment_service import PaymentOutcome
+from merchant.control import gating_service
+from merchant.domain import inventory_service
+from merchant.evidence import audit_service
+from merchant.control.delegation_service import validate_delegation
+from merchant.payment.payment_service import PaymentOutcome
 
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "created": {"requires_payment", "declined", "cancelled"},
@@ -116,7 +118,7 @@ def computes_cart_hash(items: list[dict]) -> str:
     item shape (unit_price in rupees) and the Execution Mandate shape
     (unit_price_paise), normalizing to paise so both sides hash identically.
     """
-    from merchant_agent.services import crypto_service
+    from merchant.ap2 import crypto_service
 
     normalized = []
     for i in items:
@@ -783,7 +785,7 @@ def complete_checkout(
     # --- 5. AP2: build + sign the Execution Mandate (PRD §14–15) ---
     # Freeze the exact basket about to be charged, then verify it before any
     # money movement. Fail closed: any verification failure -> NO Razorpay call.
-    from merchant_agent.services import authorization_service, crypto_service
+    from merchant.ap2 import authorization_service, crypto_service
 
     amount_paise = new_totals["total"] * 100
     mandate_items = [
@@ -875,7 +877,7 @@ def complete_checkout(
     )
 
     # --- 6. Money movement ---
-    from merchant_agent.services import payment_service
+    from merchant.payment import payment_service
 
     driver = settings.payment_driver
     total_rupees = new_totals["total"]
@@ -1092,7 +1094,7 @@ def settle_probe(cs: CheckoutSession, payment_id: str) -> int | None:
     in which case the callback falls back to the persisted order amount. Never
     raises: a probe failure must not block an already-verified payment.
     """
-    from merchant_agent.services import payment_service
+    from merchant.payment import payment_service
 
     try:
         pay = payment_service.fetch_payment(payment_id)
@@ -1201,8 +1203,8 @@ def _issue_receipt_for_outcome(db: Session, cs: CheckoutSession, outcome: Paymen
     """
     if not cs.execution_mandate_id:
         return
-    from merchant_agent.models.entities import ExecutionMandate, PolicyDecision
-    from merchant_agent.services import authorization_service
+    from merchant.persistence.models.entities import ExecutionMandate, PolicyDecision
+    from merchant.ap2 import authorization_service
 
     mandate = db.get(ExecutionMandate, cs.execution_mandate_id)
     if mandate is None:
@@ -1251,7 +1253,7 @@ def reconcile_session(db: Session, checkout_session_id: str) -> CompleteResponse
             f"Session {cs.status} is not payment_pending",
             http_status=409,
         )
-    from merchant_agent.services import payment_service
+    from merchant.payment import payment_service
 
     outcome = payment_service.reconcile_pending(cs.razorpay_order_id or "")
     return _finalize_payment(db, cs, outcome)

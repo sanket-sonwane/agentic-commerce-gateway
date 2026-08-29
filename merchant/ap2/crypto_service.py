@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from merchant_agent.config import settings
+from merchant.config import settings
 
 
 # ---------------------------------------------------------------- canonical JSON

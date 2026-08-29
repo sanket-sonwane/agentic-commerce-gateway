@@ -3,9 +3,9 @@ import json
 
 from sqlalchemy.orm import Session
 
-from merchant_agent.db import utcnow
-from merchant_agent.models.dto import ErrorCode, ProtocolError
-from merchant_agent.models.entities import Delegation
+from merchant.persistence.db import utcnow
+from merchant.persistence.models.dto import ErrorCode, ProtocolError
+from merchant.persistence.models.entities import Delegation
 
 
 def get_delegation(db: Session, delegation_token: str) -> Delegation | None:

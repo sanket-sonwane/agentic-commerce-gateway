@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from merchant_agent.config import settings
+from merchant.config import settings
 
 
 class Base(DeclarativeBase):
@@ -77,7 +77,7 @@ def utcnow() -> datetime:
 
 
 def init_db() -> None:
-    from merchant_agent.models import entities  # noqa: F401
+    from merchant.persistence.models import entities  # noqa: F401
 
     Base.metadata.create_all(engine)
     _apply_migrations(engine)

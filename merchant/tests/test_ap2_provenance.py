@@ -1,10 +1,10 @@
 """AP2 crypto authorization & provenance layer tests (PRD §14–31)."""
 import json
 
-from merchant_agent.db import mutate
-from merchant_agent.models.entities import AuditEvent, CheckoutSession, ExecutionMandate
-from merchant_agent.services import crypto_service
-from merchant_agent.tests.conftest import complete, make_checkout
+from merchant.persistence.db import mutate
+from merchant.persistence.models.entities import AuditEvent, CheckoutSession, ExecutionMandate
+from merchant.ap2 import crypto_service
+from merchant.tests.conftest import complete, make_checkout
 
 
 # ---------------------------------------------------------------- crypto unit
@@ -50,7 +50,7 @@ def test_completion_creates_signed_execution_mandate(client):
         m = db.get(ExecutionMandate, cs.execution_mandate_id)
         assert m is not None
         # signature over canonical payload is valid
-        from merchant_agent.services import authorization_service
+        from merchant.ap2 import authorization_service
 
         payload = authorization_service.execution_mandate_payload(m)
         assert crypto_service.verify(payload, m.signature) is True
@@ -147,7 +147,7 @@ def test_intent_mandate_creation(client):
     assert m["type"] == "intent"
     assert m["merchant_id"] == "merchant_grocery_01"
     # signature verifies against the merchant public key
-    from merchant_agent.services import authorization_service
+    from merchant.ap2 import authorization_service
 
     payload = {
         "mandate_id": m["mandate_id"],
@@ -179,7 +179,7 @@ def test_audit_verify_includes_signed_anchor(client):
 def test_execution_mandate_verify_failure_blocks_payment(client, monkeypatch):
     """If Execution Mandate verification fails, completion is blocked and
     NO Razorpay order is created (PRD §24: any check fail -> no call)."""
-    from merchant_agent.services import authorization_service
+    from merchant.ap2 import authorization_service
 
     def _forced_fail(*args, **kwargs):
         return {
@@ -206,8 +206,8 @@ def test_execution_mandate_verify_failure_blocks_payment(client, monkeypatch):
 
 def test_reused_mandate_nonce_is_detected(client):
     """A mandate referenced by an already-issued decision receipt is a replay."""
-    from merchant_agent.models.entities import PolicyDecision
-    from merchant_agent.services import authorization_service
+    from merchant.persistence.models.entities import PolicyDecision
+    from merchant.ap2 import authorization_service
 
     csid = make_checkout(client).json()["checkout_session"]["checkout_session_id"]
     complete(client, csid)

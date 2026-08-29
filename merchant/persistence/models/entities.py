@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from merchant_agent.db import Base, utcnow
+from merchant.persistence.db import Base, utcnow
 
 
 class Product(Base):

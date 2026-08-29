@@ -2,9 +2,9 @@
 from fastapi import APIRouter
 from sqlalchemy.orm import Session
 
-from merchant_agent.db import mutate
-from merchant_agent.models.dto import DiscoverRequest, DiscoveryResponse
-from merchant_agent.services import discovery_service
+from merchant.persistence.db import mutate
+from merchant.persistence.models.dto import DiscoverRequest, DiscoveryResponse
+from merchant.domain import discovery_service
 
 router = APIRouter()
 

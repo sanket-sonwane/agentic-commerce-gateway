@@ -6,12 +6,12 @@ open order on retries instead of creating duplicates. Token-rejection handling
 (needs_reauth lifecycle), the mandate-order shape and the headless recurring
 charge contract are covered with mocked gateways.
 """
-from merchant_agent.config import settings
-from merchant_agent.db import mutate
-from merchant_agent.models.entities import PaymentMethod
-from merchant_agent.services import payment_service
-from merchant_agent.services.payment_service import PaymentOutcome, classify_token_rejection
-from merchant_agent.tests.conftest import complete, make_checkout
+from merchant.config import settings
+from merchant.persistence.db import mutate
+from merchant.persistence.models.entities import PaymentMethod
+from merchant.payment import payment_service
+from merchant.payment.payment_service import PaymentOutcome, classify_token_rejection
+from merchant.tests.conftest import complete, make_checkout
 
 
 BUYER = "buyer_agent_llm_01"
@@ -208,7 +208,7 @@ def test_new_callback_token_resets_needs_reauth_to_active(client, monkeypatch):
 
         csid = make_checkout(client).json()["checkout_session"]["checkout_session_id"]
         complete(client, csid)  # parks, creates open order
-        from merchant_agent.models.entities import CheckoutSession
+        from merchant.persistence.models.entities import CheckoutSession
 
         with mutate() as db:
             order_id = db.get(CheckoutSession, csid).razorpay_order_id

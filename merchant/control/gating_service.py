@@ -5,10 +5,10 @@ Pure functions. No LLM. Identical inputs always produce identical outcomes
 """
 from sqlalchemy.orm import Session
 
-from merchant_agent.db import utcnow
-from merchant_agent.models.dto import ErrorCode, GatingCheck, GatingResult
-from merchant_agent.services import inventory_service
-from merchant_agent.services.delegation_service import allowed_categories
+from merchant.persistence.db import utcnow
+from merchant.persistence.models.dto import ErrorCode, GatingCheck, GatingResult
+from merchant.domain import inventory_service
+from merchant.control.delegation_service import allowed_categories
 
 RULE_SPEND_LIMIT = "spend_limit"
 RULE_STOCK = "stock_check"

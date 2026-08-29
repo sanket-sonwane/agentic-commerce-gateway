@@ -4,9 +4,9 @@ import json
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from merchant_agent.db import read_only
-from merchant_agent.models.dto import AuditEventOut, AuditVerifyResponse
-from merchant_agent.services import audit_service
+from merchant.persistence.db import read_only
+from merchant.persistence.models.dto import AuditEventOut, AuditVerifyResponse
+from merchant.evidence import audit_service
 
 router = APIRouter()
 
@@ -52,6 +52,6 @@ def verify_audit_logs(db: Session = Depends(read_only)):
 
 @router.get("/explain/{checkout_session_id}")
 def explain(checkout_session_id: str, db: Session = Depends(read_only)):
-    from merchant_agent.services.explain_service import explain_session
+    from merchant.control.explain_service import explain_session
 
     return explain_session(db, checkout_session_id)

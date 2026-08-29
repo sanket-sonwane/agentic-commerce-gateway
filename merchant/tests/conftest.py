@@ -30,9 +30,9 @@ for _suffix in ("", "-wal", "-shm"):
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from merchant_agent.db import mutate  # noqa: E402
-from merchant_agent.main import app  # noqa: E402
-from merchant_agent.models.entities import (  # noqa: E402
+from merchant.persistence.db import mutate  # noqa: E402
+from merchant.main import app  # noqa: E402
+from merchant.persistence.models.entities import (  # noqa: E402
     AuditEvent,
     CheckoutSession,
     Delegation,
@@ -52,7 +52,7 @@ def seeded_db():
 @pytest.fixture(autouse=True)
 def clean_state(seeded_db):
     """Fresh transactions + restored catalog stock + fresh delegations per test."""
-    catalog = json.loads((ROOT / "merchant_agent" / "seed" / "catalog.json").read_text(encoding="utf-8"))
+    catalog = json.loads((ROOT / "merchant" / "seed" / "catalog.json").read_text(encoding="utf-8"))
     with mutate() as db:
         for model in (Reservation, IdempotencyKey, AuditEvent, CheckoutSession, Delegation):
             db.query(model).delete()

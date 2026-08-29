@@ -12,22 +12,23 @@ import json
 
 from fastapi import APIRouter, HTTPException
 
-from merchant_agent.agent.loop import MerchantAgent
-from merchant_agent.agent.state import (
+from merchant.agent.loop import MerchantAgent
+from merchant.agent.state import (
     MerchantAgentState,
     get_session_state,
     new_session_id,
     register_session,
     session_busy_lock,
 )
-from merchant_agent.config import settings
-from merchant_agent.models.dto import (
+from merchant.config import settings
+from merchant.persistence.models.dto import (
     AgentDecisionRequest,
     AgentSessionCreate,
     AgentSessionOut,
     AgentTraceResponse,
 )
-from merchant_agent.services import audit_service, checkout_service
+from merchant.domain import checkout_service
+from merchant.evidence import audit_service
 
 router = APIRouter()
 
@@ -67,7 +68,7 @@ def _session_out(state: MerchantAgentState) -> dict:
     )
     body = out.model_dump()
     if state.checkout_session_id:
-        from merchant_agent.db import SessionLocal
+        from merchant.persistence.db import SessionLocal
 
         db = SessionLocal()
         try:
@@ -146,7 +147,7 @@ def decide_agent_session(agent_session_id: str, body: AgentDecisionRequest):
 @router.get("/agent_sessions/{agent_session_id}/trace", response_model=AgentTraceResponse)
 def trace_agent_session(agent_session_id: str):
     """Reconstructable decision trace (PRD §38) from hash-chained audit events."""
-    from merchant_agent.db import SessionLocal
+    from merchant.persistence.db import SessionLocal
 
     state = _require_session(agent_session_id)
     db = SessionLocal()

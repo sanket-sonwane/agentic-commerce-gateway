@@ -48,7 +48,7 @@ Copy-Item .env.example .env   # then fill in your keys (see below)
 .venv\Scripts\python -m scripts.seed_catalog
 
 # 3. Run the three services (separate terminals)
-.venv\Scripts\python -m uvicorn merchant_agent.main:app --port 8000   # merchant
+.venv\Scripts\python -m uvicorn merchant.main:app --port 8000   # merchant
 .venv\Scripts\python -m buyer_service.main                            # buyer/chat backend :8001
 cd dashboard; npm install; npm run dev                                # UI :5173
 ```
@@ -141,9 +141,9 @@ contract, not hardwired to Buyer A.
 
 ```
 protocol/              published contract: spec + JSON schemas
-merchant_agent/        FastAPI merchant: discovery, checkout state machine, gating,
+merchant/              FastAPI merchant: discovery, checkout state machine, gating,
                        inventory/reservations, payments, audit chain, explanations
-merchant_agent/agent/  Merchant Agent runtime: tool registry (12 allowlisted tools),
+merchant/agent/        Merchant Agent runtime: tool registry (12 allowlisted tools),
                        observe→reason→act→adapt loop, LLM brain + deterministic fallback,
                        transaction-scoped state, per-iteration audit events
 buyer_service/         chat backend: Groq tool-loop, merchant-agent negotiation
@@ -151,7 +151,7 @@ buyer_service/         chat backend: Groq tool-loop, merchant-agent negotiation
 buyer_b/               independent deterministic protocol client
 dashboard/             React+Vite: Chat view + Merchant Ops view (+ Agent decision trace)
 scripts/               seed / reset / simulate failure / scenario checks / agent demo
-merchant_agent/tests/  48 pytest cases: state machine, gating matrix, idempotency,
+merchant/tests/        48 pytest cases: state machine, gating matrix, idempotency,
                        TOCTOU, TTL, price-change confirmation, audit tamper detection,
                        agent loop, budgets, hallucinated ids, adaptation scenarios
 ```

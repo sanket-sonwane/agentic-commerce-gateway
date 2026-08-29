@@ -1,5 +1,5 @@
 """Idempotency tests (PRD §26 / FR-13 / M4)."""
-from merchant_agent.tests.conftest import complete, make_checkout
+from merchant.tests.conftest import complete, make_checkout
 
 
 def test_complete_replay_same_result_no_double_charge(client):

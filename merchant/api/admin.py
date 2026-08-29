@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from merchant_agent.config import settings
-from merchant_agent.db import mutate, read_only
-from merchant_agent.models.entities import (
+from merchant.config import settings
+from merchant.persistence.db import mutate, read_only
+from merchant.persistence.models.entities import (
     AuditEvent,
     CheckoutSession,
     Delegation,
@@ -15,7 +15,8 @@ from merchant_agent.models.entities import (
     Pack,
     Reservation,
 )
-from merchant_agent.services import audit_service, payment_service
+from merchant.evidence import audit_service
+from merchant.payment import payment_service
 
 router = APIRouter(prefix="/admin")
 

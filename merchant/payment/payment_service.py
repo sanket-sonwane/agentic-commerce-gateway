@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from merchant_agent.config import settings
+from merchant.config import settings
 
 
 def _sim_allowed() -> bool:

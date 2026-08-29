@@ -10,15 +10,15 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from merchant_agent.config import settings
-from merchant_agent.models.entities import (
+from merchant.config import settings
+from merchant.persistence.models.entities import (
     CheckoutSession,
     DecisionReceipt,
     ExecutionMandate,
     IntentMandate,
     PolicyDecision,
 )
-from merchant_agent.services import crypto_service
+from merchant.ap2 import crypto_service
 
 
 def _utcnow() -> datetime:
@@ -152,7 +152,7 @@ def build_execution_mandate(
     Must be called AFTER final validation and immediately before money movement
     (PRD §14–15), so the mandate freezes the basket actually about to be charged.
     """
-    from merchant_agent.services.checkout_service import computes_cart_hash
+    from merchant.domain.checkout_service import computes_cart_hash
 
     now = _utcnow()
     expires = now + timedelta(minutes=settings.mandate_ttl_minutes)
@@ -222,7 +222,7 @@ def verify_execution_mandate(
 
     # cart hash must equal the current session's line items
     current_items = json.loads(cs.line_items)
-    from merchant_agent.services.checkout_service import computes_cart_hash
+    from merchant.domain.checkout_service import computes_cart_hash
 
     checks["cart_hash"] = mandate.cart_hash == computes_cart_hash(current_items)
     checks["not_expired"] = mandate.expires_at > now

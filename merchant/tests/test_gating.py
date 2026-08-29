@@ -1,5 +1,5 @@
 """Deterministic gating engine tests (PRD §23) — rule matrix."""
-from merchant_agent.tests.conftest import make_checkout
+from merchant.tests.conftest import make_checkout
 
 MILK = {"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500"}
 SAFFRON = {"product_id": "prod_saffron_premium", "pack_id": "pack_saffron_5g"}

@@ -15,9 +15,9 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from merchant_agent.config import settings
-from merchant_agent.db import utcnow
-from merchant_agent.models.entities import Reservation
+from merchant.config import settings
+from merchant.persistence.db import utcnow
+from merchant.persistence.models.entities import Reservation
 
 
 def sweep_expired(db: Session) -> int:

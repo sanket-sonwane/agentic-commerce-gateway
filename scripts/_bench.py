@@ -5,11 +5,11 @@ os.environ["MA_LLM_BRAIN"] = "false"
 import time
 import json
 from fastapi.testclient import TestClient
-from merchant_agent.main import app
-from merchant_agent.agent.loop import MerchantAgent
-from merchant_agent.agent.state import MerchantAgentState, new_session_id
-from merchant_agent.db import mutate
-from merchant_agent.models.entities import Pack
+from merchant.main import app
+from merchant.agent.loop import MerchantAgent
+from merchant.agent.state import MerchantAgentState, new_session_id
+from merchant.persistence.db import mutate
+from merchant.persistence.models.entities import Pack
 
 BUYER = "buyer_agent_llm_01"
 DELEGATION = "dlg_9f8e7d"

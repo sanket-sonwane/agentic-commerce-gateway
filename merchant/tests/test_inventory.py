@@ -1,9 +1,9 @@
 """Inventory & reservation tests (PRD §24): TTL expiry, release-on-cancel, TOCTOU."""
 from datetime import timedelta
 
-from merchant_agent.db import SessionLocal, mutate, utcnow
-from merchant_agent.models.entities import Pack, Reservation
-from merchant_agent.tests.conftest import complete, make_checkout
+from merchant.persistence.db import SessionLocal, mutate, utcnow
+from merchant.persistence.models.entities import Pack, Reservation
+from merchant.tests.conftest import complete, make_checkout
 
 CHICKEN = {"product_id": "prod_chicken_fresh", "pack_id": "pack_chicken_500", "quantity": 1}
 

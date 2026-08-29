@@ -4,7 +4,7 @@ Deterministic templating only — it never invents reasons.
 """
 from sqlalchemy.orm import Session
 
-from merchant_agent.services import audit_service
+from merchant.evidence import audit_service
 
 RULE_PHRASES = {
     "spend_limit": "the basket total exceeded the authorized spending limit",
