@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from merchant.api import admin, agent, audit, checkout, consumer, discovery, provenance
+from merchant.payment import callback as payment_callback
 from merchant.config import settings
 from merchant.persistence.db import init_db
 from merchant.persistence.models.dto import ErrorCode, ProtocolError
@@ -42,6 +43,7 @@ app.add_middleware(
 
 app.include_router(discovery.router)
 app.include_router(checkout.router)
+app.include_router(payment_callback.router)
 app.include_router(audit.router)
 app.include_router(provenance.router)
 app.include_router(consumer.router)
