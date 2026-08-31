@@ -18,19 +18,9 @@ import so the verifier can run fully offline with only supplied artifacts and
 a public key.
 """
 import json
-from datetime import datetime, timezone
 from typing import Any
 
-
-def _iso(dt: Any) -> str:
-    """Serialize a datetime to the exact ISO-8601 UTC string used at signing."""
-    if isinstance(dt, datetime):
-        if dt.tzinfo is not None:
-            dt = dt.replace(tzinfo=None)
-        return dt.isoformat(timespec="seconds")
-    # Already a string (or a plain-dict artifact) — pass through unchanged so
-    # reconstruction is byte-identical to the value used at signing time.
-    return str(dt)
+from merchant.ap2.iso import _iso  # noqa: F401 — re-export for backward compat
 
 
 def _get(obj: Any, name: str, default: Any = None) -> Any:

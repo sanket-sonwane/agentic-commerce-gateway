@@ -9,7 +9,7 @@ Signed-payload construction lives in ``merchant.ap2.signed_payloads`` so the
 runtime and the standalone verifier share the exact same canonicalization.
 """
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from merchant.persistence.models.entities import (
     UserKey,
 )
 from merchant.ap2 import crypto_service
+from merchant.ap2.iso import utcnow, parse_dt
 from merchant.ap2.user_intent import (
     VERSION as USER_ASSERTION_VERSION,
     TYPE as USER_ASSERTION_TYPE,
@@ -38,10 +39,6 @@ from merchant.ap2.signed_payloads import (
     intent_mandate_payload,
     policy_decision_payload,
 )
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ---------------------------------------------------------------- intent mandate
@@ -61,7 +58,7 @@ def build_intent_mandate(
     The mandate answers "what was the buyer authorized to accomplish?" — it
     must not claim any specific purchase (that is the Execution Mandate's job).
     """
-    now = _utcnow()
+    now = utcnow()
     if expires_at is None:
         expires_at = now + timedelta(days=30)
     m = IntentMandate(
@@ -106,7 +103,7 @@ def build_execution_mandate(
     """
     from merchant.domain.checkout import computes_cart_hash
 
-    now = _utcnow()
+    now = utcnow()
     expires = now + timedelta(minutes=settings.mandate_ttl_minutes)
 
     mandate = ExecutionMandate(
@@ -149,7 +146,7 @@ def verify_execution_mandate(
 
     Caller decides: if ALL mandatory checks pass the payment proceeds.
     """
-    now = _utcnow()
+    now = utcnow()
     payload = execution_mandate_payload(mandate)
     checks: dict[str, bool] = {}
 
@@ -248,7 +245,7 @@ def verify_intent_scope(
         return False, f"Intent mandate {intent_mandate_id} signature invalid"
     if m.buyer_agent_id != buyer_agent_id:
         return False, "Intent mandate belongs to a different buyer agent"
-    if m.expires_at <= _utcnow():
+    if m.expires_at <= utcnow():
         return False, f"Intent mandate {intent_mandate_id} expired"
 
     constraints = json.loads(m.constraints) or {}
@@ -275,7 +272,7 @@ def verify_intent_scope(
 def mark_mandate_consumed(db: Session, mandate: ExecutionMandate) -> None:
     """Mark an Execution Mandate as single-use-consumed after its payment settles."""
     if mandate.consumed_at is None:
-        mandate.consumed_at = _utcnow()
+        mandate.consumed_at = utcnow()
         db.flush()
 
 
@@ -382,7 +379,7 @@ def store_user_assertion(
         canonical_payload_hash=canonical_hash,
         key_id=key_id,
         signature=signature,
-        consumed_at=_utcnow(),  # single-use: consumed the moment it authorizes
+        consumed_at=utcnow(),  # single-use: consumed the moment it authorizes
     )
     db.add(row)
     db.flush()
@@ -417,7 +414,7 @@ def verify_user_assertion(
     payment (PAYMENT_BLOCKED) — the merchant never trusts an unverified user
     signature to authorize money movement.
     """
-    now = now or _utcnow()
+    now = now or utcnow()
     checks: dict[str, bool] = {}
 
     # --- 1. + 2. signature + key trust (resolve key BEFORE touching fields) ---
@@ -462,8 +459,8 @@ def verify_user_assertion(
 
     # --- 4. expiry window ---
     try:
-        issued = _as_dt(artifact["issued_at"])
-        expires = _as_dt(artifact["expires_at"])
+        issued = parse_dt(artifact["issued_at"])
+        expires = parse_dt(artifact["expires_at"])
     except (KeyError, TypeError, ValueError):
         issued, expires = None, None
     checks["not_expired"] = (
@@ -521,17 +518,6 @@ def verify_user_assertion(
     return checks, detail, str(artifact.get("assertion_id", ""))
 
 
-def _as_dt(value: Any) -> datetime | None:
-    from datetime import datetime as _dt
-
-    if isinstance(value, _dt):
-        return value.replace(tzinfo=None) if value.tzinfo else value
-    try:
-        return _dt.fromisoformat(str(value))
-    except (ValueError, TypeError):
-        return None
-
-
 # ---------------------------------------------------------------- policy decision
 
 
@@ -552,7 +538,7 @@ def sign_policy_decision(
         decision=decision,
         checks=json.dumps(checks, separators=(",", ":")),
         authorized_amount_paise=authorized_amount_paise,
-        timestamp=_utcnow(),
+        timestamp=utcnow(),
         key_id=crypto_service.key_id(),
     )
     payload = policy_decision_payload(dec)
@@ -588,7 +574,7 @@ def issue_decision_receipt(
         razorpay_payment_id=razorpay_payment_id,
         payment_status="verified",
         outcome=outcome,
-        created_at=_utcnow(),
+        created_at=utcnow(),
         key_id=crypto_service.key_id(),
     )
     payload = decision_receipt_payload(receipt)

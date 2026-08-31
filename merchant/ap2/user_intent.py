@@ -19,7 +19,7 @@ standalone verifier exactly like ``signed_payloads``.
 """
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 VERSION = "1.0"
@@ -27,12 +27,7 @@ TYPE = "UserIntentAssertion"
 SCHEMA_PREFIX = "s1"
 
 
-def _iso(dt: Any) -> str:
-    if isinstance(dt, datetime):
-        if dt.tzinfo is not None:
-            dt = dt.replace(tzinfo=None)
-        return dt.isoformat(timespec="seconds")
-    return str(dt)
+from merchant.ap2.iso import _iso  # noqa: F401
 
 
 def _compact_json(value: Any) -> str:

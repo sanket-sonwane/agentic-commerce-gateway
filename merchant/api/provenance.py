@@ -8,6 +8,7 @@ from merchant.config import settings
 from merchant.persistence.db import mutate, read_only
 from merchant.persistence.models.dto import IntentMandateCreate, UserKeyRegister
 from merchant.ap2 import authorization_service, crypto_service
+from merchant.ap2.iso import _iso
 from merchant.evidence import audit_service
 from merchant.control.delegation_service import validate_delegation
 from merchant.ap2.provenance_service import verify_provenance
@@ -66,7 +67,7 @@ def create_intent_mandate(body: IntentMandateCreate):
             payload={
                 "mandate_id": m.mandate_id,
                 "canonical_payload_hash": m.canonical_payload_hash,
-                "expires_at": authorization_service._iso(m.expires_at),
+                "expires_at": _iso(m.expires_at),
             },
         )
         mandate_out = {
@@ -76,8 +77,8 @@ def create_intent_mandate(body: IntentMandateCreate):
             "buyer_agent_id": m.buyer_agent_id,
             "intent": json.loads(m.intent),
             "constraints": json.loads(m.constraints),
-            "issued_at": authorization_service._iso(m.issued_at),
-            "expires_at": authorization_service._iso(m.expires_at),
+            "issued_at": _iso(m.issued_at),
+            "expires_at": _iso(m.expires_at),
             "nonce": m.nonce,
             "version": m.version,
             "canonical_payload_hash": m.canonical_payload_hash,
