@@ -12,9 +12,6 @@ stage). Nothing is learned from messages/tool arguments.
 import threading
 import time
 
-_OK_YIELD = {"ok", "success", "created", "fulfilled", "bill_ready"}
-
-
 class _StageRecorder:
     """Thread-local accumulation of completed stage timings."""
 
@@ -99,17 +96,4 @@ class stage_timer:
         return False
 
 
-def _safe_bool(result: dict) -> str | None:
-    """Derive a coarse success/outcome label from a structured result without
-    logging its contents (no amounts, ids, or PII)."""
-    if not isinstance(result, dict):
-        return None
-    if result.get("error"):
-        return "error"
-    for key in _OK_YIELD:
-        if result.get(key) is True:
-            return "ok"
-    return None
-
-
-__all__ = ["recorder", "stage_timer", "_safe_bool"]
+__all__ = ["recorder", "stage_timer"]

@@ -62,7 +62,12 @@ def intent(text: str) -> str | None:
 
 
 def _state_note(payload: dict) -> dict:
-    """Deterministic ground-truth note (mirrors the buyer agent's format)."""
+    """Deterministic ground-truth note written into conv.llm_history.
+
+    Canonical single source shared with the agent modules (bill/proposals).
+    It records only deterministic outcomes; it never lets the LLM set an
+    amount, price or payment truth — it only mirrors server decisions.
+    """
     return {"role": "system", "content": json.dumps({"state": payload}, default=str)}
 
 
