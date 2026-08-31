@@ -13,7 +13,7 @@ Joint invariant:
 """
 import pytest
 
-from merchant.domain import checkout_service
+from merchant.domain.checkout.payment import _finalize_payment
 from merchant.persistence.db import mutate
 from merchant.persistence.models.entities import CheckoutSession, Pack
 from merchant.payment import payment_service
@@ -180,7 +180,7 @@ def test_c2_order_and_session_mismatch_rejected(client, monkeypatch):
 
 def _finalize(db, cs, outcome):
     """Raw call to the internal finalizer (bypasses /complete & callback)."""
-    return checkout_service._finalize_payment(db, cs, outcome)
+    return _finalize_payment(db, cs, outcome)
 
 
 def test_c3_valid_requires_payment_to_completed_succeeds(client):
@@ -225,7 +225,7 @@ def test_c3_terminal_state_never_refinalizes(client, terminal):
         with pytest.raises(Exception) as ei:
             _finalize(db, cs, out)
         exc = ei.value
-        from merchant.domain.checkout_service import ProtocolError
+        from merchant.persistence.models.dto import ProtocolError
         assert isinstance(exc, ProtocolError)
         assert exc.code == "INVALID_STATE_TRANSITION"
         # nothing mutated: still terminal, no payment attached, no stock consumed
@@ -247,7 +247,7 @@ def test_c3_non_completable_state_rejected(client, illegal):
                          message="x", simulated=True, raw={"amount": 10400})
     with mutate() as db:
         cs = db.get(CheckoutSession, csid)
-        from merchant.domain.checkout_service import ProtocolError
+        from merchant.persistence.models.dto import ProtocolError
         with pytest.raises(ProtocolError) as ei:
             _finalize(db, cs, out)
         assert ei.value.code == "INVALID_STATE_TRANSITION"
@@ -263,7 +263,7 @@ def test_c3_created_to_completed_rejected_even_with_valid_binding(client):
     _given(client, csid, state="created")
     with mutate() as db:
         cs = db.get(CheckoutSession, csid)
-        from merchant.domain.checkout_service import ProtocolError
+        from merchant.persistence.models.dto import ProtocolError
         with pytest.raises(ProtocolError):
             _finalize(db, cs, PaymentOutcome(status="completed", order_id="o",
                                              payment_id="p", raw={"amount": 10400}))

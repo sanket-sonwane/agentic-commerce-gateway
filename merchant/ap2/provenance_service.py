@@ -97,7 +97,7 @@ def verify_provenance(db: Session, checkout_session_id: str) -> dict:
     })
 
     # 3. Cart hash matches the session basket
-    from merchant.domain.checkout_service import computes_cart_hash
+    from merchant.domain.checkout import computes_cart_hash
 
     checks.append({
         "name": "cart_binding",

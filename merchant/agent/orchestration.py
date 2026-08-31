@@ -676,7 +676,7 @@ class MerchantAgent:
         if not state.checkout_session_id:
             return None
         from merchant.persistence.db import SessionLocal
-        from merchant.domain import checkout_service
+        from merchant.domain import checkout as checkout_service
 
         db = SessionLocal()
         try:
@@ -730,7 +730,7 @@ class MerchantAgent:
     def _confirm_terms(self, state: MerchantAgentState, proposal: dict) -> None:
         """Buyer accepted changed terms (price change) -> confirm and continue."""
         from merchant.persistence.db import mutate
-        from merchant.domain import checkout_service
+        from merchant.domain import checkout as checkout_service
 
         version = int((proposal.get("proposal") or {}).get("version", 0))
         with mutate() as db:
@@ -759,7 +759,7 @@ class MerchantAgent:
     def _reject_terms(self, state: MerchantAgentState) -> None:
         """Buyer declined new terms -> cancel session, graceful decline."""
         from merchant.persistence.db import mutate
-        from merchant.domain import checkout_service
+        from merchant.domain import checkout as checkout_service
 
         with mutate() as db:
             checkout_service.cancel_checkout(

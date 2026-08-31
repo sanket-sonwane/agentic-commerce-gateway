@@ -19,7 +19,7 @@ from merchant.persistence.models.dto import (
     ProtocolError,
     UpdateCheckoutRequest,
 )
-from merchant.domain import checkout_service
+from merchant.domain import checkout as checkout_service
 from merchant.payment import payment_service
 
 router = APIRouter()

@@ -33,7 +33,7 @@ from merchant.persistence.models.dto import (
     ErrorCode,
     ProtocolError,
 )
-from merchant.domain import checkout_service
+from merchant.domain import checkout as checkout_service
 from merchant.evidence import audit_service
 
 # Display-only mapping. The data model has no merchant display name; we map the

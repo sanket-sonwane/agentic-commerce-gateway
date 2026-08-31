@@ -25,7 +25,7 @@ from merchant.config import settings
 from merchant.persistence.db import SessionLocal, mutate
 from merchant.persistence.models.dto import ErrorCode, ProtocolError
 from merchant.control import delegation_service
-from merchant.domain import checkout_service
+from merchant.domain import checkout as checkout_service
 from merchant.domain.catalog import (
     available,
     check_inventory,
