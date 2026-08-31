@@ -203,7 +203,7 @@ def complete_checkout(
     user_assertion_id: str | None = None
     user_assertion_hash: str | None = None
     if user_assertion:
-        from merchant.ap2.authorization_service import (
+        from merchant.ap2.user_assertion_service import (
             store_user_assertion,
             verify_user_assertion,
         )

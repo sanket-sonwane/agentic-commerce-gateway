@@ -9,6 +9,7 @@ from merchant.persistence.db import mutate, read_only
 from merchant.persistence.models.dto import IntentMandateCreate, UserKeyRegister
 from merchant.ap2 import authorization_service, crypto_service
 from merchant.ap2.iso import _iso
+from merchant.ap2.user_assertion_service import register_user_key as register_user_key_service
 from merchant.evidence import audit_service
 from merchant.control.delegation_service import validate_delegation
 from merchant.ap2.provenance_service import verify_provenance
@@ -100,7 +101,7 @@ def register_user_key(body: UserKeyRegister):
     """
     with mutate() as db:
         try:
-            row = authorization_service.register_user_key(
+            row = register_user_key_service(
                 db,
                 user_id=body.user_id,
                 key_id=body.key_id,
