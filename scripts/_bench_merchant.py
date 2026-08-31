@@ -28,7 +28,7 @@ from merchant.config import settings as msettings  # noqa: E402
 msettings.ma_llm_brain = True
 
 from merchant.agent.state import MerchantAgentState, new_session_id  # noqa: E402
-from merchant.agent.loop import MerchantAgent  # noqa: E402
+from merchant.agent.orchestration import MerchantAgent  # noqa: E402
 from merchant.persistence.db import mutate, SessionLocal  # noqa: E402
 from merchant.persistence.models.entities import CheckoutSession  # noqa: E402
 

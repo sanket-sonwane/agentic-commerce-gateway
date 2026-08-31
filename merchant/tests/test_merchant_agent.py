@@ -7,7 +7,7 @@ import json
 
 from merchant.agent import tools as agent_tools
 from merchant.agent.state import MerchantAgentState, get_session_state, new_session_id
-from merchant.agent.loop import MerchantAgent
+from merchant.agent.orchestration import MerchantAgent
 from merchant.persistence.db import mutate
 from merchant.persistence.models.entities import AuditEvent, CheckoutSession, Pack
 

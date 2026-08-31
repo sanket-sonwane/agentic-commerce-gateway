@@ -19,10 +19,11 @@ like the guardrail suites in test_agent_handoff.py.
 """
 import json
 
-import merchant.agent.loop as loop_mod
-from merchant.agent.loop import MerchantAgent
+import merchant.agent.orchestration as loop_mod
+from merchant.agent.orchestration import MerchantAgent
 from merchant.agent.state import MerchantAgentState, get_session_state, new_session_id
 from merchant.agent import tools as agent_tools
+from merchant.agent.llm_brain import _transaction_state_note
 from merchant.config import settings
 from merchant.persistence.db import mutate
 from merchant.persistence.models.entities import Pack
@@ -343,8 +344,8 @@ def test_current_basket_note_in_transaction_state():
     """The per-turn context exposes the resolved live basket in one line so the
     model never has to reconstruct it (STEP-11-minimal context, no redesign)."""
     state = _make_state("buyer_completes", items=[{**MILK, "quantity": 2}])
-    assert "current basket: none yet" in loop_mod._transaction_state_note(state)
+    assert "current basket: none yet" in _transaction_state_note(state)
 
     state.current_items = [{"pack_id": MILK["pack_id"], "quantity": 2}]
-    note = loop_mod._transaction_state_note(state)
+    note = _transaction_state_note(state)
     assert f"{MILK['pack_id']} x2" in note

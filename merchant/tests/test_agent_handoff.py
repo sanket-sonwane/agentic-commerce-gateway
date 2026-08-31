@@ -10,8 +10,9 @@ sequences through the production loop/tools — no prompt-dependent behavior.
 """
 import json
 
-import merchant.agent.loop as loop_mod
-from merchant.agent.loop import MerchantAgent, _exposed_tool_schemas, _transaction_state_note
+import merchant.agent.orchestration as loop_mod
+from merchant.agent.orchestration import MerchantAgent
+from merchant.agent.llm_brain import _exposed_tool_schemas, _transaction_state_note
 from merchant.agent.state import MerchantAgentState, new_session_id
 from merchant.agent import tools as agent_tools
 from merchant.config import settings

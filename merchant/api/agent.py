@@ -12,7 +12,7 @@ import json
 
 from fastapi import APIRouter, HTTPException
 
-from merchant.agent.loop import MerchantAgent
+from merchant.agent.orchestration import MerchantAgent
 from merchant.agent import timing as agent_timing
 from merchant.agent.state import (
     MerchantAgentState,

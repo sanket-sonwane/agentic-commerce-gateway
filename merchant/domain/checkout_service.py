@@ -109,6 +109,16 @@ def _compute_totals(resolved_items: list[dict]) -> dict:
     }
 
 
+def resolve_line_items(db: Session, raw_items: list[dict]) -> list[dict]:
+    """Public seam over the authoritative line-item resolution (agent gating preview)."""
+    return _resolve_items(db, raw_items)
+
+
+def compute_totals(resolved_items: list[dict]) -> dict:
+    """Public seam over the authoritative totals computation (agent gating preview)."""
+    return _compute_totals(resolved_items)
+
+
 def computes_cart_hash(items: list[dict]) -> str:
     """Stable SHA-256 over the resolved line items (AP2 §21 cart_hash).
 
@@ -234,6 +244,13 @@ def get_session(db: Session, checkout_session_id: str) -> CheckoutSession:
             http_status=404,
         )
     return cs
+
+
+def get_session_status(db: Session, checkout_session_id: str) -> str | None:
+    """Status-only read (None when the session does not exist) — used by the
+    Merchant Agent's payment-truth / live-basket checks."""
+    cs = db.get(CheckoutSession, checkout_session_id)
+    return cs.status if cs is not None else None
 
 
 def _check_ownership(cs: CheckoutSession, buyer_agent_id: str, delegation_token: str) -> None:

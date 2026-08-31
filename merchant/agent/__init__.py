@@ -5,7 +5,7 @@ Layering (PRD §4/§49):
     Deterministic plane   -> financial authority + policy enforcement
     Razorpay              -> payment execution
 """
-from merchant.agent.loop import MerchantAgent
+from merchant.agent.orchestration import MerchantAgent
 from merchant.agent.state import SESSIONS, MerchantAgentState, new_session_id
 
 __all__ = ["MerchantAgent", "MerchantAgentState", "SESSIONS", "new_session_id"]

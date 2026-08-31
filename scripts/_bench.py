@@ -6,7 +6,7 @@ import time
 import json
 from fastapi.testclient import TestClient
 from merchant.main import app
-from merchant.agent.loop import MerchantAgent
+from merchant.agent.orchestration import MerchantAgent
 from merchant.agent.state import MerchantAgentState, new_session_id
 from merchant.persistence.db import mutate
 from merchant.persistence.models.entities import Pack
