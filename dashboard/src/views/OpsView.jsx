@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ReceiptText, ShieldCheck, CreditCard, RotateCcw, Copy, Check } from 'lucide-react'
-import { adminFetch, merchantFetch } from '../api.js'
+import { ReceiptText, ShieldCheck, CreditCard, RotateCcw, Copy, Check, LogOut, LockKeyhole } from 'lucide-react'
+import { adminFetch, adminLogin, adminLogout, merchantFetch } from '../api.js'
 import RazorpayPayCard from '../components/RazorpayPayCard.jsx'
 import AuditTimeline from '../components/AuditTimeline.jsx'
 import MerchantAgentSection, { AgentTraceDetail } from '../components/MerchantAgentTrace.jsx'
@@ -26,12 +26,22 @@ export default function OpsView({ focusSessionId = null }) {
   const [integrity, setIntegrity] = useState(null)
   const [tab, setTab] = useState('tx')
   const [agentSessionId, setAgentSessionId] = useState(null)
+  // null = checking, true = operator authenticated, false = requires sign-in
+  const [authed, setAuthed] = useState(null)
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState(null)
+  const [loginBusy, setLoginBusy] = useState(false)
 
   const refreshSessions = useCallback(async () => {
     try {
-      const { body } = await adminFetch('/admin/ops/status')
-      setOpsStatus(body)
-      setSessions(body?.recent_sessions || [])
+      const res = await adminFetch('/admin/ops/status')
+      if (res.status === 401) {
+        setAuthed(false)
+        return
+      }
+      setAuthed(true)
+      setOpsStatus(res.body)
+      setSessions(res.body?.recent_sessions || [])
     } catch { /* merchant down */ }
   }, [])
 
@@ -49,13 +59,64 @@ export default function OpsView({ focusSessionId = null }) {
     merchantFetch('/audit_logs/verify').then(r => setIntegrity(r.body)).catch(() => {})
   }, [])
 
+  async function onSubmitLogin(e) {
+    e.preventDefault()
+    setLoginBusy(true)
+    setLoginError(null)
+    const { ok, body } = await adminLogin(password)
+    setLoginBusy(false)
+    if (ok) {
+      setPassword('')
+      setAuthed(true)
+      refreshSessions()
+    } else {
+      setLoginError(body?.detail || 'Sign-in rejected')
+      setAuthed(false)
+    }
+  }
+
+  async function onLogout() {
+    await adminLogout()
+    setAuthed(false)
+    setOpsStatus(null)
+    setSessions([])
+    setSelected(null)
+  }
+
   async function resetDemo() {
-    if (!window.confirm('Reset demo state? All transactions and audit events will be cleared.')) return
-    await adminFetch('/admin/demo/reset', { method: 'POST' })
+    if (!window.confirm('Reset demo state? All transactions will be cleared and catalog stock restored. The audit trail is preserved — this reset is recorded in the audit log.')) return
+    const res = await adminFetch('/admin/demo/reset', { method: 'POST' })
+    if (res.status === 401) { setAuthed(false); return }
     setSelected(null)
     setAgentSessionId(null)
     setIntegrity(null)
     refreshSessions()
+  }
+
+  if (authed === false) {
+    return (
+      <div className="empty-state" style={{ maxWidth: 360, margin: '60px auto' }}>
+        <div className="ops-section-title"><LockKeyhole size={13} style={{ verticalAlign: -1 }} /> Operator sign-in</div>
+        <p className="muted" style={{ marginBottom: 10 }}>
+          This console is privileged (stock control, demo reset). Sign in with the operator
+          passphrase to continue. It is verified server-side; your browser does not store it.
+        </p>
+        <form onSubmit={onSubmitLogin} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Operator passphrase"
+            autoFocus
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)' }}
+          />
+          {loginError && <div className="pay-note" style={{ color: 'var(--red)' }}>⚠ {loginError}</div>}
+          <button className="btn-pay" disabled={loginBusy || !password} style={{ width: '100%' }}>
+            {loginBusy ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    )
   }
 
   return (
@@ -108,6 +169,9 @@ export default function OpsView({ focusSessionId = null }) {
         <div className="ops-section-title">Danger zone</div>
         <button className="mini-btn warn full" onClick={resetDemo}>
           <RotateCcw size={12} /> Reset demo state
+        </button>
+        <button className="mini-btn full" style={{ marginTop: 8 }} onClick={onLogout}>
+          <LogOut size={12} /> Sign out operator
         </button>
       </div>
 

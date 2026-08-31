@@ -1,0 +1,30 @@
+{
+  "canonical": "s1|type=UserIntentAssertion|version=1.0|assertion_id=ua_golden_vector_0001|user_id=user_golden_0001|user_key_id=userkey_02623377e3801c52|merchant_id=merchant_grocery_01|delegate_id=buyer_agent_llm_01|intent={\"action\":\"checkout\",\"checkout_session_id\":\"cs_golden_vector_0001\",\"description\":\"golden vector basket \\| with \\\\\\\\ pipe and space\"}|constraint_ceiling={\"currency\":\"INR\",\"max_amount_paise\":45950}|issued_at=2026-08-30T12:00:00|expires_at=2026-08-30T12:15:00|nonce=nonce_golden_vector_0001",
+  "canonical_payload_hash": "6e8479b85da495287227fc730629bf2edbcaf1fb12bfc1d32e5acb6a9419e9a0",
+  "signature": "7083fe82a35ef387942fe89460bc770228861dadabbbef6305973b59cfbe776e40607fc4a6946b490f11de33cce5a07823c6a48670409b62e9d9975be7b4dc01",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=\n-----END PUBLIC KEY-----",
+  "artifact": {
+    "assertion_id": "ua_golden_vector_0001",
+    "version": "1.0",
+    "type": "UserIntentAssertion",
+    "user_id": "user_golden_0001",
+    "user_key_id": "userkey_02623377e3801c52",
+    "merchant_id": "merchant_grocery_01",
+    "delegate_id": "buyer_agent_llm_01",
+    "intent": {
+      "action": "checkout",
+      "checkout_session_id": "cs_golden_vector_0001",
+      "description": "golden vector basket | with \\ pipe and space"
+    },
+    "constraint_ceiling": {
+      "currency": "INR",
+      "max_amount_paise": 45950
+    },
+    "issued_at": "2026-08-30T12:00:00",
+    "expires_at": "2026-08-30T12:15:00",
+    "nonce": "nonce_golden_vector_0001",
+    "key_id": "userkey_02623377e3801c52",
+    "canonical_payload_hash": "6e8479b85da495287227fc730629bf2edbcaf1fb12bfc1d32e5acb6a9419e9a0",
+    "signature": "7083fe82a35ef387942fe89460bc770228861dadabbbef6305973b59cfbe776e40607fc4a6946b490f11de33cce5a07823c6a48670409b62e9d9975be7b4dc01"
+  }
+}

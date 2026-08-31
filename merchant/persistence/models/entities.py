@@ -175,6 +175,10 @@ class ExecutionMandate(Base):
     total_paise: Mapped[int] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String, default="INR")
     cart_hash: Mapped[str] = mapped_column(String, default="")
+    # Workstream E: the user-signed intent assertion (id + canonical hash) that
+    # authorized this execution. NULL = legacy pre-assertion authorization path.
+    user_assertion_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    user_assertion_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     nonce: Mapped[str] = mapped_column(String)
@@ -224,3 +228,53 @@ class DecisionReceipt(Base):
     canonical_payload_hash: Mapped[str] = mapped_column(String, default="")
     key_id: Mapped[str] = mapped_column(String, default="")
     signature: Mapped[str] = mapped_column(String, default="")
+
+
+class UserKey(Base):
+    """A buying human's registered Ed25519 public key (Workstream E).
+
+    Registered via POST /user_keys with the PUBLIC key only. The private key
+    lives exclusively in the user's browser localStorage and is never sent to
+    the server (the server can cryptographically verify a user signature but
+    can never forge one).
+    """
+
+    __tablename__ = "user_keys"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    key_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    public_key_pem: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="active")  # active | revoked
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class UserIntentAssertion(Base):
+    """A user-signed intent assertion (Workstream E).
+
+    Root of authority: the PII-owning human signs an intent assertion binding
+    their identity (user_id, user_key_id), the merchant, the trusted delegate,
+    the checkout action and a spend ceiling. The merchant verifies the Ed25519
+    signature against the registered UserKey BEFORE any execution mandate /
+    order / payment is created. Single-use: consumed_at set on first use.
+    """
+
+    __tablename__ = "user_intent_assertions"
+
+    assertion_id: Mapped[str] = mapped_column(String, primary_key=True)
+    version: Mapped[str] = mapped_column(String, default="1.0")
+    type: Mapped[str] = mapped_column(String, default="UserIntentAssertion")
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    user_key_id: Mapped[str] = mapped_column(String, index=True)
+    merchant_id: Mapped[str] = mapped_column(String)
+    delegate_id: Mapped[str] = mapped_column(String, index=True)
+    intent: Mapped[str] = mapped_column(String, default="{}")  # JSON
+    constraint_ceiling: Mapped[str] = mapped_column(String, default="{}")  # JSON
+    issued_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    nonce: Mapped[str] = mapped_column(String)
+    canonical_payload_hash: Mapped[str] = mapped_column(String, default="")
+    key_id: Mapped[str] = mapped_column(String, default="")
+    signature: Mapped[str] = mapped_column(String, default="")
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

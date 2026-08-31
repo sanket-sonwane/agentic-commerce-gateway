@@ -6,6 +6,7 @@ unavailable, a keyword fallback parser keeps demos working (NFR-01/NFR-10).
 """
 import json
 import re
+import time
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from merchant.config import settings
 from merchant.persistence.models.entities import Pack, Product
 from merchant.evidence import audit_service
+from merchant.agent import timing as agent_timing
 
 STOPWORDS = {
     "a", "an", "the", "for", "and", "or", "under", "below", "less", "than",
@@ -252,9 +254,20 @@ def discover(
     )
 
     if skip_llm_parse:
+        _start = time.perf_counter()
         parsed = _fallback_parse(query)
+        agent_timing.record("discovery", "discover_parse", _start, time.perf_counter(),
+                            outcome="ok", parser="keyword-fallback")
     else:
-        parsed = _llm_parse(query) or _fallback_parse(query)
+        _start = time.perf_counter()
+        parsed = _llm_parse(query)
+        if parsed is not None:
+            agent_timing.record("discovery", "discover_parse", _start, time.perf_counter(),
+                                outcome="ok", parser="llm")
+        else:
+            parsed = _fallback_parse(query)
+            agent_timing.record("discovery", "discover_parse", _start, time.perf_counter(),
+                                outcome="fallback", parser="keyword-fallback")
     if not parsed.keywords:
         parsed = _fallback_parse(query)
 

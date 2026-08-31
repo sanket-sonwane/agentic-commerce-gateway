@@ -13,6 +13,7 @@ import json
 from fastapi import APIRouter, HTTPException
 
 from merchant.agent.loop import MerchantAgent
+from merchant.agent import timing as agent_timing
 from merchant.agent.state import (
     MerchantAgentState,
     get_session_state,
@@ -67,6 +68,11 @@ def _session_out(state: MerchantAgentState) -> dict:
         tool_calls=state.tool_call_count,
     )
     body = out.model_dump()
+    # Workstream A: structured per-stage latency breakdown for this session.
+    body["latency_breakdown"] = {
+        "stages": agent_timing.stages(state.agent_session_id),
+        "total_ms": agent_timing.session_total_ms(state.agent_session_id),
+    }
     if state.checkout_session_id:
         from merchant.persistence.db import SessionLocal
 

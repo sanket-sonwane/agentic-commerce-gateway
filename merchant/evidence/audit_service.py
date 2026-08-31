@@ -3,6 +3,8 @@
     entry_n.hash = SHA256(canonical_content + entry_(n-1).hash)
 
 No application workflow ever updates or deletes rows; the API only appends.
+Appends must run inside a serialized write transaction (``with mutate()``) so
+``prev_hash`` is always read from a commit-stable head.
 """
 import hashlib
 import json
@@ -41,6 +43,12 @@ def append_event(
     reasoning_summary: str = "",
     payload: dict | None = None,
 ) -> AuditEvent:
+    if not db.info.get("_begin_immediate"):
+        raise RuntimeError(
+            "append_event must run inside a serialized write transaction "
+            "(with mutate()); a direct append can compute prev_hash from a "
+            "stale head under concurrent writers and break the audit chain."
+        )
     last = db.execute(select(AuditEvent).order_by(AuditEvent.seq.desc()).limit(1)).scalar_one_or_none()
     prev_hash = last.hash if last else ""
 

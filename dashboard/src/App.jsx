@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react'
 import { ShoppingBag, Sun, Moon, X, LayoutDashboard, ShieldCheck } from 'lucide-react'
 import ChatView from './views/ChatView.jsx'
 import OpsView from './views/OpsView.jsx'
+import ConsumerProvenanceDrawer from './components/ConsumerProvenanceDrawer.jsx'
 import { checkHealth, merchantFetch } from './api.js'
 
 export default function App() {
   const [opsOpen, setOpsOpen] = useState(false)
+  const [consumerOpen, setConsumerOpen] = useState(false)
+  const [consumerSession, setConsumerSession] = useState(null)
   const [focusSession, setFocusSession] = useState(null)
   const [theme, setTheme] = useState(() => localStorage.getItem('acg-theme') || 'dark')
   const [health, setHealth] = useState({ merchant: null, buyer: null })
@@ -38,6 +41,12 @@ export default function App() {
     window.addEventListener('acg:open-ops', handler)
     return () => window.removeEventListener('acg:open-ops', handler)
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const handler = e => { setConsumerSession(e.detail || null); setConsumerOpen(true) }
+    window.addEventListener('acg:open-consumer', handler)
+    return () => window.removeEventListener('acg:open-consumer', handler)
   }, [])
 
   function openOps(sessionId = null) {
@@ -97,6 +106,13 @@ export default function App() {
             </div>
           </aside>
         </>
+      )}
+
+      {consumerOpen && consumerSession && (
+        <ConsumerProvenanceDrawer
+          sessionId={consumerSession}
+          onClose={() => setConsumerOpen(false)}
+        />
       )}
     </div>
   )

@@ -1,0 +1,91 @@
+{
+  "provider": "groq",
+  "base_url": "https://api.groq.com/openai/v1",
+  "temperature": 0.2,
+  "max_tokens": 700,
+  "merchant_brain": "live",
+  "reps": 2,
+  "model": "openai/gpt-oss-safeguard-20b",
+  "scenarios": {
+    "M1_substitution": [
+      {
+        "status": "awaiting_buyer_confirmation",
+        "reason": null,
+        "llm_calls": 3,
+        "llm_disabled": false,
+        "wall_ms": 2702.51,
+        "checkout_id": null,
+        "payment_id": false
+      },
+      {
+        "status": "awaiting_buyer_confirmation",
+        "reason": null,
+        "llm_calls": 3,
+        "llm_disabled": false,
+        "wall_ms": 17295.59,
+        "checkout_id": null,
+        "payment_id": false
+      }
+    ],
+    "M3_price_authority": [
+      {
+        "status": "completed",
+        "reason": "fulfilled_after_gated_completion",
+        "llm_calls": 2,
+        "llm_disabled": false,
+        "wall_ms": 4564.6,
+        "checkout_id": "cs_04e9ed9b6a",
+        "payment_id": true
+      },
+      {
+        "status": "completed",
+        "reason": "fulfilled_after_gated_completion",
+        "llm_calls": 1,
+        "llm_disabled": true,
+        "wall_ms": 2638.45,
+        "checkout_id": "cs_5b8a493d7c",
+        "payment_id": true
+      }
+    ],
+    "M4_ambiguous_choice": [
+      {
+        "status": "completed",
+        "reason": "fulfilled_after_gated_completion",
+        "llm_calls": 2,
+        "llm_disabled": false,
+        "wall_ms": 7453.97,
+        "checkout_id": "cs_83afd2bdb9",
+        "payment_id": true
+      },
+      {
+        "status": "completed",
+        "reason": "fulfilled_after_gated_completion",
+        "llm_calls": 2,
+        "llm_disabled": false,
+        "wall_ms": 5232.09,
+        "checkout_id": "cs_012815fc0e",
+        "payment_id": true
+      }
+    ],
+    "M5_adapt_then_complete": [
+      {
+        "status": "awaiting_buyer_confirmation",
+        "reason": null,
+        "llm_calls": 4,
+        "llm_disabled": false,
+        "wall_ms": 30023.97,
+        "checkout_id": "cs_1fc63c0c99",
+        "payment_id": false
+      },
+      {
+        "status": "awaiting_buyer_confirmation",
+        "reason": null,
+        "llm_calls": 4,
+        "llm_disabled": false,
+        "wall_ms": 25543.9,
+        "checkout_id": "cs_ab8a8d8766",
+        "payment_id": false
+      }
+    ]
+  }
+}

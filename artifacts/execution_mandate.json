@@ -1,0 +1,18 @@
+{
+  "buyer_agent_id": "buyer_agent_b_deterministic",
+  "canonical_payload_hash": "b0813e282959313991f930f593b35aa753eab89f3eeda981795db5dae680be35",
+  "cart_hash": "7042f8897598b713fbf83c13bf921820845ebbf31ee0d2ba1ab815553f73a72d",
+  "checkout_session_id": "cs_d2112640db",
+  "currency": "INR",
+  "expires_at": "2026-08-30T07:27:48",
+  "intent_mandate_id": "im_294a881592a049d9",
+  "issued_at": "2026-08-30T07:17:48",
+  "items": "[{\"product_id\":\"prod_milk_mother_dairy\",\"pack_id\":\"pack_milk_md_1l\",\"quantity\":1,\"unit_price_paise\":5800,\"category\":\"dairy\"}]",
+  "key_id": "merchant-key-01",
+  "mandate_id": "em_436b3c760a1e4b1f",
+  "merchant_id": "merchant_grocery_01",
+  "nonce": "5200a05732de411da514d9e7df334d53",
+  "signature": "b244e436bfdf6ba7b7f38e62f9f51fb84440c3b02f09881eaad8654f8c5e0b86b253618ff1d590b7772f5d274560ce75624679d7c95b2c4e87acaf78abd9b20e",
+  "total_paise": 9800,
+  "type": "execution"
+}

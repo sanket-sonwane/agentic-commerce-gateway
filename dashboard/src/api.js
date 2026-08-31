@@ -10,7 +10,22 @@ export async function merchantFetch(path, options = {}) {
 }
 
 export function adminFetch(path, options = {}) {
-  return merchantFetch(path, { ...options, headers: { 'X-Admin-Token': 'admin_demo_token', ...(options.headers || {}) } })
+  // No privileged value is embedded here. The browser authenticates via the
+  // server-signed HttpOnly `acg_admin_session` cookie issued by POST /admin/login;
+  // the privileged secret remains server-side only.
+  return merchantFetch(path, options)
+}
+
+export function adminLogin(password) {
+  return merchantFetch('/admin/login', { method: 'POST', body: JSON.stringify({ password }) })
+}
+
+export function adminLogout() {
+  return merchantFetch('/admin/logout', { method: 'POST' })
+}
+
+export function registerUserKey(payload) {
+  return merchantFetch('/user_keys', { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export async function checkHealth() {

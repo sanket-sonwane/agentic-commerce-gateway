@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from merchant.api import admin, agent, audit, checkout, discovery, provenance
+from merchant.api import admin, agent, audit, checkout, consumer, discovery, provenance
 from merchant.config import settings
 from merchant.persistence.db import init_db
 from merchant.persistence.models.dto import ErrorCode, ProtocolError
@@ -44,6 +44,7 @@ app.include_router(discovery.router)
 app.include_router(checkout.router)
 app.include_router(audit.router)
 app.include_router(provenance.router)
+app.include_router(consumer.router)
 app.include_router(agent.router)
 app.include_router(admin.router)
 

@@ -18,16 +18,72 @@ from sqlalchemy.orm import Session
 from merchant.config import settings
 from merchant.persistence.db import utcnow
 from merchant.persistence.models.entities import Reservation
+from merchant.evidence import audit_service
+
+
+def _reservation_event(
+    db: Session,
+    *,
+    actor: str,
+    action: str,
+    res: Reservation,
+    prev_status: str,
+    new_status: str,
+    reason: str = "",
+) -> None:
+    """Record a reservation state transition in the serialized audit trail.
+
+    MUST be called from inside a `mutate()` block (``_begin_immediate`` set), so
+    the audit event shares the transaction with the state change: if the
+    transaction rolls back, neither the transition nor the evidence persists.
+    """
+    if not db.info.get("_begin_immediate"):
+        return
+    audit_service.append_event(
+        db,
+        actor=actor,
+        action=action,
+        checkout_session_id=res.checkout_session_id,
+        decision="info",
+        reasoning_summary=reason or _default_summary(action),
+        payload={
+            "reservation_id": res.reservation_id,
+            "pack_id": res.pack_id,
+            "quantity": int(res.quantity),
+            "previous_status": prev_status,
+            "new_status": new_status,
+        },
+    )
+
+
+def _default_summary(action: str) -> str:
+    return {
+        "reservation_released": "Reserved stock was released",
+        "reservation_consumed": "Reserved stock was consumed",
+        "reservation_expired": "Reservation expired",
+    }.get(action, "Reservation state changed")
 
 
 def sweep_expired(db: Session) -> int:
-    """Mark expired active reservations as expired. Returns count swept."""
+    """Mark expired active reservations as expired. Returns count swept.
+
+    Lifecycle audit: each durable expiry is recorded as ``reservation_expired``.
+    `sweep_expired` is ALSO invoked from read-only/agent inventory checks where
+    the change is transient (rolled back, no ``_begin_immediate``); those are
+    never audited, because they are not real transitions.
+    """
     now = utcnow()
     stale = db.execute(
         select(Reservation).where(Reservation.status == "active", Reservation.expires_at <= now)
     ).scalars().all()
     for res in stale:
+        prev = res.status
         res.status = "expired"
+        _reservation_event(
+            db, actor="merchant_agent", action="reservation_expired",
+            res=res, prev_status=prev, new_status="expired",
+            reason="Reservation exceeded its expiry window",
+        )
     if stale:
         db.flush()
     return len(stale)
@@ -66,7 +122,13 @@ def create_reservations(db: Session, checkout_session_id: str, items: list[dict]
     return expires_at.isoformat() + "Z"
 
 
-def release_session_reservations(db: Session, checkout_session_id: str) -> None:
+def release_session_reservations(
+    db: Session,
+    checkout_session_id: str,
+    *,
+    actor: str = "merchant_agent",
+    reason: str = "",
+) -> None:
     """Release all active reservations belonging to a session."""
     rows = db.execute(
         select(Reservation).where(
@@ -75,12 +137,24 @@ def release_session_reservations(db: Session, checkout_session_id: str) -> None:
         )
     ).scalars().all()
     for res in rows:
+        prev = res.status
         res.status = "released"
+        _reservation_event(
+            db, actor=actor, action="reservation_released",
+            res=res, prev_status=prev, new_status="released",
+            reason=reason or "Reserved stock was released",
+        )
     if rows:
         db.flush()
 
 
-def consume_session_reservations(db: Session, checkout_session_id: str) -> None:
+def consume_session_reservations(
+    db: Session,
+    checkout_session_id: str,
+    *,
+    actor: str = "merchant_agent",
+    reason: str = "",
+) -> None:
     """Consume reservations after successful payment (stock is decremented)."""
     rows = db.execute(
         select(Reservation).where(
@@ -89,6 +163,12 @@ def consume_session_reservations(db: Session, checkout_session_id: str) -> None:
         )
     ).scalars().all()
     for res in rows:
+        prev = res.status
         res.status = "consumed"
+        _reservation_event(
+            db, actor=actor, action="reservation_consumed",
+            res=res, prev_status=prev, new_status="consumed",
+            reason=reason or "Reserved stock was consumed after payment",
+        )
     if rows:
         db.flush()

@@ -1,12 +1,12 @@
-"""AP2 provenance + intent-mandate API (PRD §10–12, §30)."""
+"""AP2 provenance + intent-mandate + user-key API (PRD §10–12, §30; Workstream E)."""
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from merchant.config import settings
 from merchant.persistence.db import mutate, read_only
-from merchant.persistence.models.dto import IntentMandateCreate
+from merchant.persistence.models.dto import IntentMandateCreate, UserKeyRegister
 from merchant.ap2 import authorization_service, crypto_service
 from merchant.evidence import audit_service
 from merchant.control.delegation_service import validate_delegation
@@ -86,3 +86,37 @@ def create_intent_mandate(body: IntentMandateCreate):
             "verifiable_public_key": crypto_service.public_key_pem(),
         }
     return mandate_out
+
+
+@router.post("/user_keys", status_code=201)
+def register_user_key(body: UserKeyRegister):
+    """Register a buying human's Ed25519 PUBLIC key (Workstream E).
+
+    Only the public key is registered; the private key stays exclusively in
+    the user's browser localStorage and is never transmitted. The merchant can
+    cryptographically VERIFY user signatures but can never FORGE one. A
+    re-registration for the same user rotates the key (previous key replaced).
+    """
+    with mutate() as db:
+        try:
+            row = authorization_service.register_user_key(
+                db,
+                user_id=body.user_id,
+                key_id=body.key_id,
+                public_key_pem=body.public_key_pem,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"invalid public key: {exc}") from exc
+        audit_service.append_event(
+            db,
+            actor="user",
+            action="user_key_registered",
+            checkout_session_id=None,
+            decision="info",
+            reasoning_summary=(
+                f"User {row.user_id} registered public key {row.key_id} "
+                "(private key stays in the user's browser; never transmitted)"
+            ),
+            payload={"user_id": row.user_id, "key_id": row.key_id, "status": row.status},
+        )
+    return {"user_id": row.user_id, "key_id": row.key_id, "status": row.status, "registered": True}

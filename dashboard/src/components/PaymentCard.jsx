@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { LockKeyhole, Loader2, BadgeCheck } from 'lucide-react'
 import { merchantFetch } from '../api.js'
+import { mapPaymentState, PAYMENT_UI } from '../utils/paymentState.js'
 
 let rzpLoading = null
 function loadRazorpay() {
@@ -51,6 +52,7 @@ export default function PaymentCard({ redirect, onPaid }) {
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
   const [paid, setPaid] = useState(null)
+  const [authoritativeState, setAuthoritativeState] = useState(null)
 
   async function openModal() {
     setError(null)
@@ -85,14 +87,23 @@ export default function PaymentCard({ redirect, onPaid }) {
             `/checkout_sessions/${redirect.checkout_session_id}/payment_callback`,
             { method: 'POST', body: JSON.stringify(resp) },
           )
-          if (ok && body?.checkout_session?.status === 'completed') {
+          // The backend session is the authoritative source of truth. We never
+          // infer "paid" from the callback event — only the backend status.
+          const session = ok ? body?.checkout_session : null
+          const state = session ? mapPaymentState(session) : PAYMENT_UI.UNKNOWN
+          setAuthoritativeState(state)
+          if (state === PAYMENT_UI.COMPLETED) {
             setPaid({
-              amount: body.checkout_session.totals.total,
-              saved: body.checkout_session.payment.saved_card || null,
+              amount: session.totals.total,
+              saved: session.payment.saved_card || null,
             })
             onPaid?.(body)
+          } else if (body?.error?.message) {
+            setError(body.error.message)
+          } else if (state !== PAYMENT_UI.UNKNOWN) {
+            setError(`Payment not completed — ${state.replace(/_/g, ' ').toLowerCase()}.`)
           } else {
-            setError(body?.error?.message || 'Payment could not be verified.')
+            setError('Payment could not be verified.')
           }
         } catch {
           setError('Verification request failed — check Merchant Ops view.')
@@ -163,6 +174,11 @@ export default function PaymentCard({ redirect, onPaid }) {
         </div>
       )}
       {notice && <div className="pay-note">{notice}</div>}
+      {authoritativeState && authoritativeState !== PAYMENT_UI.COMPLETED && (
+        <div className="pay-note" style={{ color: 'var(--red)' }}>
+          ⚠ {authoritativeState.replace(/_/g, ' ').toLowerCase()} — nothing was charged.
+        </div>
+      )}
       {error && <div className="pay-note" style={{ color: 'var(--red)' }}>⚠ {error}</div>}
     </div>
   )

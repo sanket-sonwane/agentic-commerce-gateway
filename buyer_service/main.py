@@ -7,6 +7,7 @@
 import queue
 import re
 import threading
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,9 @@ from pydantic import BaseModel
 from buyer_service.agent import BILL_PAUSE, BuyerAgent
 from buyer_service.config import settings
 from buyer_service.conversations import CONVERSATIONS, Conversation, get_conversation, new_conversation
+from buyer_service.routing import intent as router_intent
+from buyer_service.routing import respond as router_respond
+from buyer_service.timing import recorder
 
 app = FastAPI(title="Agentic Commerce Gateway — Buyer Service", version="0.1.0")
 
@@ -83,6 +87,7 @@ class ChatRequest(BaseModel):
 
 class DecisionRequest(BaseModel):
     approved: bool
+    user_assertion: dict[str, Any] | None = None
 
 
 class ChooseRequest(BaseModel):
@@ -103,6 +108,7 @@ def _stream(conv: Conversation, gen, prelude: list[dict] | None = None):
                 if event is not BILL_PAUSE:
                     conv.emit(event)
                 q.put(event)
+            conv.timings = recorder.stages(conv.id)
         except Exception as exc:  # noqa: BLE001
             err = {"type": "message", "content": f"Something went wrong on my side ({exc})."}
             conv.emit(err)
@@ -139,18 +145,30 @@ def chat(body: ChatRequest):
     has_prior_exchange = any(
         e.get("type") not in ("conversation_started", "user_message") for e in conv.events
     )
+    # B: deterministically-answerable messages (cancel / status) legitimately
+    # resolve a pending bill or substitution without waiting on it, so they are
+    # not rejected by the pending-card 409 guard.
+    route_kind = router_intent(body.message)
     with conv.lock:
         if conv.busy:
             raise HTTPException(status_code=409, detail="Agent is still working on the previous message.")
-        if conv.pending_approval is not None:
-            raise HTTPException(status_code=409, detail="A bill is awaiting your approval below.")
-        if conv.pending_substitution is not None:
-            raise HTTPException(status_code=409, detail="An item substitution is awaiting your answer above.")
+        if route_kind not in ("cancel", "order_status"):
+            if conv.pending_approval is not None:
+                raise HTTPException(status_code=409, detail="A bill is awaiting your approval below.")
+            if conv.pending_substitution is not None:
+                raise HTTPException(status_code=409, detail="An item substitution is awaiting your answer above.")
         conv.busy = True
     conv.emit({"type": "user_message", "content": body.message})
     prelude = [{"type": "conversation_started", "conversation_id": conv.id}]
     if not has_prior_exchange and _is_smalltalk(body.message):
         return _stream(conv, _smalltalk_gen(body.message), prelude=prelude)
+    # B: deterministic-first routing — cancel/status intents are answered from
+    # authoritative state without an extra LLM call. Everything else falls
+    # through to the normal tool loop.
+    handled = router_respond(conv, body.message, agent.merchant)
+    if handled is not None:
+        recorder.begin_turn(conv.id)
+        return _stream(conv, handled, prelude=prelude)
     return _stream(
         conv,
         agent.llm_loop(conv, body.message),
@@ -169,7 +187,8 @@ def decision(conversation_id: str, body: DecisionRequest):
         if conv.busy:
             raise HTTPException(status_code=409, detail="Agent is busy.")
         conv.busy = True
-    return _stream(conv, agent.resume_after_decision(conv, body.approved))
+    recorder.begin_turn(conv.id)
+    return _stream(conv, agent.resume_after_decision(conv, body.approved, user_assertion=body.user_assertion))
 
 
 @app.post("/conversations/{conversation_id}/choose")
@@ -183,6 +202,7 @@ def choose(conversation_id: str, body: ChooseRequest):
         if conv.busy:
             raise HTTPException(status_code=409, detail="Agent is busy.")
         conv.busy = True
+    recorder.begin_turn(conv.id)
     return _stream(conv, agent.choose(conv, body.choice))
 
 
@@ -195,6 +215,23 @@ def replay(conversation_id: str):
         "conversation_id": conv.id,
         "events": conv.events,
         "pending_approval": conv.pending_approval,
+    }
+
+
+@app.get("/conversations/{conversation_id}/timings")
+def timings(conversation_id: str):
+    """Structured per-stage latency for the latest turn (Workstream A).
+
+    Exposes only scalar stage timings — no prompts, messages, tool
+    arguments, amounts, ids, or any sensitive material.
+    """
+    conv = get_conversation(conversation_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Unknown conversation")
+    return {
+        "conversation_id": conv.id,
+        "timings": conv.timings,
+        "turn_count": len(conv.events),
     }
 
 

@@ -1,0 +1,61 @@
+{
+  "artifacts": {
+    "decision_receipt": {
+      "authorized_amount_paise": 7200,
+      "canonical_payload_hash": "75768679f618751688157dbda7c09a8fac1ceb121905fdb25c1fbd0c671be79e",
+      "checkout_session_id": "cs_44cf1197a0",
+      "created_at": "2026-08-29T13:26:17",
+      "decision_id": "dec_056710083a644650",
+      "execution_mandate_id": "em_d8662456286b4b28",
+      "intent_mandate_id": null,
+      "key_id": "merchant-key-01",
+      "outcome": "completed",
+      "payment_status": "verified",
+      "razorpay_order_id": "order_TVbLNCRJ6KslAF",
+      "razorpay_payment_id": "None",
+      "receipt_id": "rcpt_8663e4670b8948b2",
+      "signature": "759116a1d2dcc73d53e9dc38e525a1eb492477d50f7ecaf7ee5842b0ec6a12f265200416d842ee6d0ca991f93cf759cee53fef1e37e16011db18fcffb5b8300d",
+      "type": "decision_receipt"
+    },
+    "execution_mandate": {
+      "buyer_agent_id": "buyer_agent_llm_01",
+      "canonical_payload_hash": "ac1688275132a2034ad4ccf501dfc09ee97f0b2e3762b43cd5bca8067c5182e3",
+      "cart_hash": "d420e008e9111a7300f26c8f352cadd7b0386f0b297c2cae1e768cc652ae62f7",
+      "checkout_session_id": "cs_44cf1197a0",
+      "currency": "INR",
+      "expires_at": "2026-08-29T13:36:08",
+      "intent_mandate_id": null,
+      "issued_at": "2026-08-29T13:26:08",
+      "items": "[{\"product_id\":\"prod_milk_amul\",\"pack_id\":\"pack_milk_amul_500\",\"quantity\":1,\"unit_price_paise\":3200,\"category\":\"dairy\"}]",
+      "key_id": "merchant-key-01",
+      "mandate_id": "em_d8662456286b4b28",
+      "merchant_id": "merchant_grocery_01",
+      "nonce": "558692827f1b47bf924793e4648f5f34",
+      "signature": "7eea78f1c5985eff3ae04d632e49d32fbdeb9a5ce501846f50e144a6529119bd171322cc189c11257b48cb8b00983b7107f31dcb9ffceb9e176047de63cf7803",
+      "total_paise": 7200,
+      "type": "execution"
+    },
+    "policy_decision": {
+      "authorized_amount_paise": 7200,
+      "canonical_payload_hash": "6adfae6ede2db39f8158caccbed78be74769401f484ab1fb23ccd6c40aa3ff28",
+      "checkout_session_id": "cs_44cf1197a0",
+      "checks": "[{\"rule\":\"delegation_expiry\",\"result\":\"pass\",\"detail\":\"valid until 2027-08-29T13:24:57.818172Z\"},{\"rule\":\"category_allowed\",\"result\":\"pass\",\"detail\":\"categories allowed: dairy\"},{\"rule\":\"quantity_limit\",\"result\":\"pass\",\"detail\":\"all quantities <= 10\"},{\"rule\":\"spend_limit\",\"result\":\"pass\",\"detail\":\"\\u20b972 <= \\u20b95000\"},{\"rule\":\"stock_check\",\"result\":\"pass\",\"detail\":\"all items in stock\"}]",
+      "decision": "approved",
+      "decision_id": "dec_056710083a644650",
+      "execution_mandate_id": "em_d8662456286b4b28",
+      "key_id": "merchant-key-01",
+      "signature": "43c478be0c84d37c394300215e1c1cf31edb4f72d31675b2aea8005282a1cdacc10f95261f20a27974e6f9e2c99b1a87cbe866f7e98ebb5f288eb245a309ee0a",
+      "timestamp": "2026-08-29T13:26:08",
+      "type": "policy_decision"
+    }
+  },
+  "checkout_session_id": "cs_44cf1197a0",
+  "description": "AP2-inspired signed transaction artifacts (no secrets)",
+  "key_id": "merchant-key-01",
+  "public_key": {
+    "algorithm": "Ed25519",
+    "key_id": "merchant-key-01",
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAvn6PsqBcP7p8GniBa6Dgiqr+f/rpFVjdGP9nmKT1ogE=\n-----END PUBLIC KEY-----"
+  },
+  "version": "1.0"
+}

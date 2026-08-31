@@ -1,5 +1,5 @@
 """Discovery fallback parser tests (deterministic, no LLM)."""
-from merchant.persistence.db import SessionLocal
+from merchant.persistence.db import mutate
 from merchant.domain.discovery_service import _fallback_parse, discover
 
 
@@ -20,12 +20,9 @@ def test_quantity_extraction():
 
 
 def test_discover_end_to_end_deterministic():
-    db = SessionLocal()
-    try:
+    with mutate() as db:
         result = discover(db, query="milk, bread and eggs for under 300", buyer_agent_id="t")
-        names = [p["matched_for"] for p in result["basket_proposal"]]
-        assert set(names) >= {"milk", "bread", "eggs"}
-        assert result["estimated_total"] <= 300 + 40  # items must respect stated budget
-        assert all("match_reasons" in p for p in result["basket_proposal"])
-    finally:
-        db.close()
+    names = [p["matched_for"] for p in result["basket_proposal"]]
+    assert set(names) >= {"milk", "bread", "eggs"}
+    assert result["estimated_total"] <= 300 + 40  # items must respect stated budget
+    assert all("match_reasons" in p for p in result["basket_proposal"])

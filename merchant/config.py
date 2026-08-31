@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # brain and the discovery query parser.
     llm_api_key: str = ""
     llm_base_url: str = "https://api.groq.com/openai/v1"
-    llm_model: str = "openai/gpt-oss-120b"
+    llm_model: str = "openai/gpt-oss-safeguard-20b"
 
     # Razorpay test mode
     razorpay_key_id: str = ""
@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Merchant agent
     merchant_db_path: str = "data/merchant.db"
     admin_token: str = "admin_demo_token"
+    # Operator session cookie lifetime (POST /admin/login -> HttpOnly cookie).
+    admin_session_ttl_minutes: int = 120
+    # Max age of a user-signed intent assertion consent (issued -> expiry window).
+    user_assertion_ttl_minutes: int = 15
     shipping_fee: int = 40
     free_shipping_threshold: int = 999
     reservation_ttl_minutes: int = 10

@@ -8,12 +8,33 @@ from merchant.persistence.models.entities import (
     DecisionReceipt,
     ExecutionMandate,
     PolicyDecision,
+    UserIntentAssertion,
+    UserKey,
 )
 from merchant.ap2 import authorization_service, crypto_service
+from merchant.ap2.signed_payloads import _iso
+from merchant.ap2.user_intent import artifact_canonical_string
 
 
 def _provenance_available(checkout_session: CheckoutSession, mandate: ExecutionMandate | None) -> bool:
     return mandate is not None
+
+
+def _full_artifact(payload: dict, signature: str, canonical_payload_hash: str, key_id: str) -> dict:
+    """Fold signature + key_id back over a signed payload dict.
+
+    The signed payload alone is not independently verifiable; the standalone
+    verifier needs the full artifact shape (payload fields + ``signature`` +
+    ``canonical_payload_hash`` + ``key_id``) exactly like the offline export in
+    ``scripts/export_ap2_evidence.py`` produces. Keeping this export in the same
+    shape means any consumer can feed ``artifacts.*`` straight to
+    ``standalone_verifier.verify_transaction_evidence``.
+    """
+    d = dict(payload)
+    d["signature"] = signature
+    d["canonical_payload_hash"] = canonical_payload_hash
+    d["key_id"] = key_id
+    return d
 
 
 def verify_provenance(db: Session, checkout_session_id: str) -> dict:
@@ -102,6 +123,65 @@ def verify_provenance(db: Session, checkout_session_id: str) -> dict:
             "detail": scope_detail,
         })
 
+    # 3c. Workstream E: user-signed intent assertion — the root of authority.
+    # If the Execution Mandate references one, it must exist, be single-use
+    # consumed, hash-match, and its signature must verify under the user's
+    # registered public key.
+    if mandate.user_assertion_id:
+        ua = db.get(UserIntentAssertion, mandate.user_assertion_id)
+        if ua is not None:
+            key = (
+                db.query(UserKey).filter(UserKey.key_id == ua.user_key_id).first()
+            )
+            rebuilt = {
+                "assertion_id": ua.assertion_id,
+                "version": ua.version,
+                "type": ua.type,
+                "user_id": ua.user_id,
+                "user_key_id": ua.user_key_id,
+                "merchant_id": ua.merchant_id,
+                "delegate_id": ua.delegate_id,
+                "intent": json.loads(ua.intent),
+                "constraint_ceiling": json.loads(ua.constraint_ceiling),
+                "issued_at": ua.issued_at.isoformat(timespec="seconds"),
+                "expires_at": ua.expires_at.isoformat(timespec="seconds"),
+                "nonce": ua.nonce,
+            }
+            canonical = artifact_canonical_string(rebuilt)
+            sig_ok = bool(
+                canonical is not None
+                and key is not None
+                and crypto_service.verify_utf8(canonical, ua.signature, key.public_key_pem)
+            )
+            checks.append({
+                "name": "user_assertion",
+                "ok": (
+                    key is not None
+                    and key.status == "active"
+                    and ua.consumed_at is not None
+                    and ua.canonical_payload_hash == mandate.user_assertion_hash
+                    and sig_ok
+                ),
+                "detail": (
+                    f"User assertion {ua.assertion_id} verified under user key "
+                    f"{ua.user_key_id} (single-use consumed)"
+                    if key is not None and sig_ok and ua.canonical_payload_hash == mandate.user_assertion_hash
+                    else "User assertion present but NOT verified"
+                ),
+            })
+        else:
+            checks.append({
+                "name": "user_assertion",
+                "ok": False,
+                "detail": f"Referenced user assertion {mandate.user_assertion_id} not found",
+            })
+    else:
+        checks.append({
+            "name": "user_assertion",
+            "ok": True,
+            "detail": "No user-signed assertion on this transaction (legacy authorization path)",
+        })
+
     # 4. Policy decision approved + signed
     decision = (
         db.query(PolicyDecision)
@@ -166,6 +246,49 @@ def verify_provenance(db: Session, checkout_session_id: str) -> dict:
         })
 
     all_ok = all(c["ok"] for c in checks) and cs.status in ("completed", "declined")
+    user_assertion_artifact = None
+    if mandate.user_assertion_id and db.get(UserIntentAssertion, mandate.user_assertion_id) is not None:
+        ua = db.get(UserIntentAssertion, mandate.user_assertion_id)
+        key = db.query(UserKey).filter(UserKey.key_id == ua.user_key_id).first()
+        user_assertion_artifact = {
+            "assertion_id": ua.assertion_id,
+            "version": ua.version,
+            "type": ua.type,
+            "user_id": ua.user_id,
+            "user_key_id": ua.user_key_id,
+            "merchant_id": ua.merchant_id,
+            "delegate_id": ua.delegate_id,
+            "intent": json.loads(ua.intent),
+            "constraint_ceiling": json.loads(ua.constraint_ceiling),
+            "issued_at": ua.issued_at.isoformat(timespec="seconds"),
+            "expires_at": ua.expires_at.isoformat(timespec="seconds"),
+            "nonce": ua.nonce,
+            "canonical_payload_hash": ua.canonical_payload_hash,
+            "signature": ua.signature,
+            "key_id": ua.user_key_id,
+            "user_public_key_pem": key.public_key_pem if key else None,
+        }
+    merchant_key_id = crypto_service.key_id()
+    em_full = _full_artifact(
+        em_payload, mandate.signature, mandate.canonical_payload_hash, merchant_key_id
+    )
+    # Signed payloads store timestamps under their payload keys (iss_ts/exp/ts);
+    # the verifier's required-field contract uses the canonical field names:
+    # re-add them exactly as the offline export does (bulk field identity).
+    em_full["issued_at"] = _iso(mandate.issued_at)
+    em_full["expires_at"] = _iso(mandate.expires_at)
+    pol_full = None
+    if decision:
+        pol_full = _full_artifact(
+            dec_payload, decision.signature, decision.canonical_payload_hash, merchant_key_id
+        )
+        pol_full["timestamp"] = _iso(decision.timestamp)
+    rcpt_full = None
+    if receipt:
+        rcpt_full = _full_artifact(
+            rcpt_payload, receipt.signature, receipt.canonical_payload_hash, merchant_key_id
+        )
+        rcpt_full["created_at"] = _iso(receipt.created_at)
     return {
         "checkout_session_id": checkout_session_id,
         "provenance_available": True,
@@ -177,12 +300,11 @@ def verify_provenance(db: Session, checkout_session_id: str) -> dict:
             "One or more provenance checks failed; chain is not fully verified."
         ),
         "artifacts": {
-            "execution_mandate": authorization_service.execution_mandate_payload(mandate),
+            "execution_mandate": em_full,
             "execution_mandate_signature": mandate.signature,
-            "policy_decision": authorization_service.policy_decision_payload(decision)
-            if decision else None,
-            "decision_receipt": authorization_service.decision_receipt_payload(receipt)
-            if receipt else None,
-            "merchant_key_id": crypto_service.key_id(),
+            "policy_decision": pol_full,
+            "decision_receipt": rcpt_full,
+            "user_assertion": user_assertion_artifact,
+            "merchant_key_id": merchant_key_id,
         },
     }

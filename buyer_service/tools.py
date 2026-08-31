@@ -3,8 +3,6 @@
 No merchant internals, no DB, no Razorpay (G2 / NFR-07). Every call returns
 (status_code, parsed_json) so the agent loop can react to structured errors.
 """
-import uuid
-
 import httpx
 
 from buyer_service.config import settings
@@ -42,7 +40,8 @@ class MerchantClient:
         )
         return r.status_code, r.json()
 
-    def create_checkout(self, line_items: list[dict], delegation_token: str | None = None) -> tuple[int, dict]:
+    def create_checkout(self, line_items: list[dict], delegation_token: str | None = None,
+                        idempotency_key: str | None = None) -> tuple[int, dict]:
         r = httpx.post(
             f"{self.base}/checkout_sessions",
             json={
@@ -50,6 +49,7 @@ class MerchantClient:
                 "delegation_token": delegation_token or settings.delegation_token,
                 "line_items": line_items,
             },
+            headers=self._headers(idempotency_key),
             timeout=30,
         )
         return r.status_code, r.json()
@@ -88,16 +88,27 @@ class MerchantClient:
 
     def complete_checkout(
         self, checkout_session_id: str, delegation_token: str | None = None,
-        intent_mandate_id: str | None = None,
+        intent_mandate_id: str | None = None, idempotency_key: str | None = None,
+        user_assertion: dict | None = None,
     ) -> tuple[int, dict]:
+        # E3: the idempotency key is derived from the checkout/session (per-bill),
+        # NOT a fresh UUID per call. A buyer/user retry of the same approved bill
+        # therefore reuses the same key and the merchant servers replay the
+        # original result instead of re-running the money ladder (no double charge).
+        key = idempotency_key or f"comp_{checkout_session_id}"
+        body: dict = {
+            "buyer_agent_id": settings.buyer_agent_id,
+            "delegation_token": delegation_token or settings.delegation_token,
+            "intent_mandate_id": intent_mandate_id,
+        }
+        # Workstream E: the buyer's user-signed intent assertion is relayed to the
+        # merchant, which verifies it BEFORE creating any mandate/order/payment.
+        if user_assertion:
+            body["user_assertion"] = user_assertion
         r = httpx.post(
             f"{self.base}/checkout_sessions/{checkout_session_id}/complete",
-            json={
-                "buyer_agent_id": settings.buyer_agent_id,
-                "delegation_token": delegation_token or settings.delegation_token,
-                "intent_mandate_id": intent_mandate_id,
-            },
-            headers=self._headers(f"comp_{uuid.uuid4().hex[:12]}"),
+            json=body,
+            headers=self._headers(key),
             timeout=60,
         )
         return r.status_code, r.json()

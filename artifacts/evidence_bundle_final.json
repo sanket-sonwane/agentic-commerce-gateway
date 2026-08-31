@@ -1,0 +1,138 @@
+{
+  "checkout_session_id": "cs_76334603aa",
+  "provenance_available": true,
+  "status": "completed",
+  "checks": [
+    {
+      "name": "execution_mandate_signature",
+      "ok": true,
+      "detail": "Mandate em_59dbd08b9bbd430a signature over canonical payload"
+    },
+    {
+      "name": "execution_mandate_integrity",
+      "ok": true,
+      "detail": "Stored canonical payload hash matches recomputation"
+    },
+    {
+      "name": "amount_binding",
+      "ok": true,
+      "detail": "Mandate total 7200paise == session authorized 7200paise"
+    },
+    {
+      "name": "cart_binding",
+      "ok": true,
+      "detail": "Mandate cart_hash matches current session line items"
+    },
+    {
+      "name": "user_assertion",
+      "ok": true,
+      "detail": "No user-signed assertion on this transaction (legacy authorization path)"
+    },
+    {
+      "name": "policy_approved",
+      "ok": true,
+      "detail": "Signed policy decision approves the exact mandate amount"
+    },
+    {
+      "name": "order_amount_binding",
+      "ok": true,
+      "detail": "Order order_TWExI66Nc9nmSG amount 7200paise == authorized 7200paise"
+    },
+    {
+      "name": "decision_receipt",
+      "ok": true,
+      "detail": "Signed Decision Receipt rcpt_5f4bffe7033d417e verified"
+    }
+  ],
+  "summary": "All provenance checks passed.",
+  "artifacts": {
+    "execution_mandate": {
+      "mandate_id": "em_59dbd08b9bbd430a",
+      "type": "execution",
+      "intent_mandate_id": null,
+      "merchant_id": "merchant_grocery_01",
+      "buyer_agent_id": "buyer_agent_llm_01",
+      "checkout_session_id": "cs_76334603aa",
+      "items": [
+        {
+          "product_id": "prod_milk_amul",
+          "pack_id": "pack_milk_amul_500",
+          "quantity": 1,
+          "unit_price_paise": 3200,
+          "category": "dairy"
+        }
+      ],
+      "total_paise": 7200,
+      "currency": "INR",
+      "user_assertion_id": null,
+      "user_assertion_hash": null,
+      "iss_ts": "2026-08-31T04:11:22",
+      "exp": "2026-08-31T04:21:22",
+      "nonce": "f0753d8c04384314bb13b928730a7cb2",
+      "signature": "2287e6e678c884431759936f5368b6b7fe48772a6c83f89ec1d4b69828e6c0e3016974b9ad9e1c9da7a09eb1876062d405d235956b827828cd3b1c9d86afb707",
+      "canonical_payload_hash": "4d4650cd25f6e112ca4a6d99e7aa311057f8a8624644202374696d269e294eef",
+      "key_id": "merchant-key-01",
+      "issued_at": "2026-08-31T04:11:22",
+      "expires_at": "2026-08-31T04:21:22"
+    },
+    "execution_mandate_signature": "2287e6e678c884431759936f5368b6b7fe48772a6c83f89ec1d4b69828e6c0e3016974b9ad9e1c9da7a09eb1876062d405d235956b827828cd3b1c9d86afb707",
+    "policy_decision": {
+      "decision_id": "dec_ffbf55011a454133",
+      "execution_mandate_id": "em_59dbd08b9bbd430a",
+      "checkout_session_id": "cs_76334603aa",
+      "decision": "approved",
+      "checks": [
+        {
+          "rule": "delegation_expiry",
+          "result": "pass",
+          "detail": "valid until 2027-08-31T03:59:06.587841Z"
+        },
+        {
+          "rule": "category_allowed",
+          "result": "pass",
+          "detail": "categories allowed: dairy"
+        },
+        {
+          "rule": "quantity_limit",
+          "result": "pass",
+          "detail": "all quantities <= 10"
+        },
+        {
+          "rule": "spend_limit",
+          "result": "pass",
+          "detail": "\u20b972 <= \u20b95000"
+        },
+        {
+          "rule": "stock_check",
+          "result": "pass",
+          "detail": "all items in stock"
+        }
+      ],
+      "authorized_amount_paise": 7200,
+      "ts": "2026-08-31T04:11:22",
+      "signature": "ca94251cebc422862d76b86bc1c6a9d1120a5bb69c90f4a85a3a9d021925ed5257a7c0f2b93f65f28a5a27b522dac12891abb67bfb699f74ec7ada368bba4903",
+      "canonical_payload_hash": "86a26da04dac5219e79de89092403022e3c44ddb6cb08e29665f3264ee79f63f",
+      "key_id": "merchant-key-01",
+      "timestamp": "2026-08-31T04:11:22"
+    },
+    "decision_receipt": {
+      "receipt_id": "rcpt_5f4bffe7033d417e",
+      "intent_mandate_id": null,
+      "execution_mandate_id": "em_59dbd08b9bbd430a",
+      "decision_id": "dec_ffbf55011a454133",
+      "checkout_session_id": "cs_76334603aa",
+      "authorized_amount_paise": 7200,
+      "razorpay_order_id": "order_TWExI66Nc9nmSG",
+      "razorpay_payment_id": "pay_final_334603aa",
+      "payment_status": "verified",
+      "outcome": "completed",
+      "ts": "2026-08-31T04:11:55",
+      "signature": "1d3f4786225f38355b5f9d8741dcf9b43dc5adf191f7da9852d22c8cf9d9a1226b4452db472f4ecb924ac2771f07c3b3c231eea9a68d101392a26a1339c37206",
+      "canonical_payload_hash": "d8b2d8c1cfcf728f5e1a146369e08566cedd5fd676d3cbe29769c5c58e65cf85",
+      "key_id": "merchant-key-01",
+      "created_at": "2026-08-31T04:11:55"
+    },
+    "user_assertion": null,
+    "merchant_key_id": "merchant-key-01"
+  }
+}

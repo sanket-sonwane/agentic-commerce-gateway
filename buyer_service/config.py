@@ -12,6 +12,7 @@ class BuyerSettings(BaseSettings):
     buyer_agent_id: str = "buyer_agent_llm_01"
     delegation_token: str = "dlg_9f8e7d"
     merchant_base_url: str = "http://localhost:8000"
+    merchant_id: str = "merchant_grocery_01"
     max_agent_iterations: int = 12
     buyer_service_port: int = 8001
 

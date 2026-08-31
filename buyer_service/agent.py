@@ -5,6 +5,7 @@ Flow ownership:
     Service    -> bill presentation, human approval pause, payment execution
     Merchant   -> validation, gating, money movement (always deterministic)
 """
+import hashlib
 import json
 import re
 import uuid
@@ -13,6 +14,8 @@ from typing import Any
 
 from buyer_service.config import settings
 from buyer_service.prompts import SYSTEM_PROMPT, TOOL_SCHEMAS
+from buyer_service.routing import current_state_block
+from buyer_service.timing import recorder, stage_timer
 from buyer_service.tools import MerchantClient
 
 BILL_PAUSE = "__BILL_PAUSE__"
@@ -31,6 +34,27 @@ def _client():
     from openai import OpenAI
 
     return OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=60.0)
+
+
+def _state_note(payload: dict) -> dict:
+    """Deterministic ground-truth note written back into conv.llm_history so the
+    model can answer follow-ups after approval/cancel/complete (E1 in the latest
+    audit). It records only deterministic outcomes; it never lets the LLM set an
+    amount, price or payment truth — it only mirrors server decisions."""
+    return {"role": "system", "content": json.dumps({"state": payload}, default=str)}
+
+
+def _stable_basket_key(line_items: list[dict]) -> str:
+    """Stable per-basket idempotency key (E2). Identical baskets must map to one
+    key so a repeated create replays the existing session instead of reserving a
+    duplicate. Sorting by pack_id keeps canonical_arg equivalence (product+pack
+    +qty) order-insensitive."""
+    canon = sorted(
+        (str(i.get("product_id")), str(i.get("pack_id")), int(i.get("quantity", 1)))
+        for i in line_items
+    )
+    digest = hashlib.sha256(json.dumps(canon, default=str).encode("utf-8")).hexdigest()[:16]
+    return f"create_{digest}"
 
 
 def _shorten_discovery(result: dict) -> str:
@@ -71,6 +95,19 @@ def _coerce_items(value) -> list:
     return value if isinstance(value, list) else []
 
 
+def _summary_outcome(result) -> str:
+    """Coarse success/outcome label for telemetry (no amounts/ids/PII)."""
+    if not isinstance(result, dict):
+        return "ok" if result is not None else "empty"
+    if result.get("error"):
+        return "error"
+    if result.get("error", {}):
+        return "error"
+    if result.get("bill_ready") or result.get("fulfilled") or result.get("created"):
+        return "ok"
+    return "ok"
+
+
 class BuyerAgent:
     def __init__(self, merchant: MerchantClient | None = None) -> None:
         self.merchant = merchant or MerchantClient()
@@ -81,7 +118,14 @@ class BuyerAgent:
         if name == "discover_products":
             query = str(args.get("query", ""))
             conv.last_query = query
-            status, payload = self.merchant.discover(query)
+            # A4 (measure-proven): the buyer LLM already parsed the user's intent
+            # into a concise query string. Re-running the merchant's own LLM query
+            # parser here is a redundant NIM call (~1.2s per discovery) that the
+            # deterministic keyword parser serves equally well for grocery browse
+            # terms. Skip it for buyer-driven discovery; the merchant agent's
+            # search_catalog tool already uses the deterministic parser.
+            with stage_timer("discover_http", tool="discover_products", query_len=len(query)):
+                status, payload = self.merchant.discover(query, skip_llm_parse=True)
             if status != 200:
                 return {"error": payload.get("error", {}).get("message", "discovery failed")}
             proposal = payload.get("basket_proposal", [])
@@ -143,10 +187,22 @@ class BuyerAgent:
                             "ONLY returned candidate pack_ids."
                         ),
                     }
-            status, payload = self.merchant.create_checkout(items)
+            # E2: stable basket-derived idempotency key. Re-creating the same
+            # basket replays the existing session instead of reserving a
+            # duplicate; creating a different basket auto-cancels any prior live
+            # session we own (no leftover reservations).
+            key = _stable_basket_key(items)
+            if conv.active_session_id and conv.last_create_key and conv.last_create_key != key:
+                try:
+                    self.merchant.cancel_checkout(conv.active_session_id)
+                except Exception:  # noqa: BLE001 — best-effort cleanup of a stale live session
+                    pass
+                conv.active_session_id = None
+            status, payload = self.merchant.create_checkout(items, idempotency_key=key)
             session = payload.get("checkout_session")
-            if status == 201 and session and session.get("status") == "requires_payment":
+            if status in (200, 201) and session and session.get("status") == "requires_payment":
                 conv.active_session_id = session["checkout_session_id"]
+                conv.last_create_key = key
                 # AP2: bind the buyer's intent scope to a signed Intent Mandate so
                 # completion can prove the execution stays within what was authorized.
                 intent_text = (conv.last_query or "").strip() or "Purchase the selected grocery basket"
@@ -270,7 +326,8 @@ class BuyerAgent:
                 return {"error": "request_text is required"}
             items = _coerce_items(args.get("items")) or None
             try:
-                status, payload = self.merchant.start_agent_session(request_text, requested_items=items)
+                with stage_timer("merchant_agent_session"):
+                    status, payload = self.merchant.start_agent_session(request_text, requested_items=items)
             except Exception as exc:  # noqa: BLE001 — transport failure is not a decline
                 return {"error": f"merchant agent unreachable: {exc}"}
             if status != 201:
@@ -285,7 +342,8 @@ class BuyerAgent:
             accept = bool(args.get("accept"))
             reason = str(args.get("reason", ""))[:200]
             try:
-                status, payload = self.merchant.respond_proposal(sid, "accept" if accept else "reject", reason)
+                with stage_timer("merchant_agent_proposal_decision"):
+                    status, payload = self.merchant.respond_proposal(sid, "accept" if accept else "reject", reason)
             except Exception as exc:  # noqa: BLE001
                 return {"error": f"merchant agent unreachable: {exc}"}
             if status != 200:
@@ -299,20 +357,35 @@ class BuyerAgent:
 
     def llm_loop(self, conv, instruction: str) -> Generator[dict, None, None]:
         """Run the NIM tool-loop. Yields events; pauses on a created checkout."""
+        recorder.begin_turn(conv.id)
         conv.llm_history.append({"role": "user", "content": instruction})
         messages = [{"role": "system", "content": SYSTEM_PROMPT}, *conv.llm_history]
+        # B: bind every turn to the deterministic, server-verified CURRENT STATE
+        # so the model can never hallucinate order/payment/substitution status.
+        messages.append({"role": "system", "content": current_state_block(conv)})
+        # B: bounded history — authoritative CURRENT STATE preserves the ground
+        # truth, so we can safely cap the raw message window to keep long chats
+        # inside the token budget. Keep the system prompt, the state block, and
+        # the most recent exchanges (always including the just-added instruction).
+        _MAX_HISTORY = 40
+        if len(messages) > _MAX_HISTORY:
+            head = messages[:1]                      # system prompt
+            state = messages[-1]                     # CURRENT STATE block
+            tail = messages[-(_MAX_HISTORY - 2):]    # recent exchanges
+            messages = [head[0], *tail, state]
         leaked_replies = 0
         ungrounded_nudges = 0
 
         for _ in range(settings.max_agent_iterations):
             try:
-                resp = _client().chat.completions.create(
-                    model=settings.buyer_llm_model,
-                    messages=messages,
-                    tools=TOOL_SCHEMAS,
-                    temperature=0.2,
-                    max_tokens=700,
-                )
+                with stage_timer("buyer_llm", llm_model=settings.buyer_llm_model):
+                    resp = _client().chat.completions.create(
+                        model=settings.buyer_llm_model,
+                        messages=messages,
+                        tools=TOOL_SCHEMAS,
+                        temperature=0.2,
+                        max_tokens=700,
+                    )
             except Exception as exc:  # noqa: BLE001
                 yield {"type": "message", "content": f"I hit a problem reaching my AI backend ({exc}). Please try again."}
                 return
@@ -340,16 +413,16 @@ class BuyerAgent:
                         args = json.loads(tc.function.arguments or "{}")
                     except json.JSONDecodeError:
                         args = {}
-                    import pathlib
-
-                    pathlib.Path("buyer_service_debug.log").open("a", encoding="utf-8").write(
-                        f"TOOL {name} ARGS({len(tc.function.arguments or '')}): {(tc.function.arguments or '')[:400]}\n"
-                    )
+                    # Telemetry is handled by the secret-safe timing recorder; do
+                    # NOT write raw tool arguments to disk (avoids leaking queries/
+                    # potential PII into a repo-root log).
                     yield {"type": "tool", "tool": name, "summary": _summarize_args(name, args), "ok": True}
-                    if name in ("discover_products", "create_checkout_session", "cancel_checkout_session"):
-                        result = self._execute_tool(conv, name, args)
-                    else:
-                        result = self._execute_agent_tools(conv, name, args)
+                    with stage_timer("buyer_tool", tool=name) as st:
+                        if name in ("discover_products", "create_checkout_session", "cancel_checkout_session"):
+                            result = self._execute_tool(conv, name, args)
+                        else:
+                            result = self._execute_agent_tools(conv, name, args)
+                        st.outcome = _summary_outcome(result)
                     yield from self._post_tool_events(conv, name, result)
                     if result.get("bill_ready"):
                         # Merchant basket is policy-approved; deterministic gate shows the bill.
@@ -450,7 +523,7 @@ class BuyerAgent:
         }
         if not change:
             conv.last_basket_items = [dict(li) for li in session.get("line_items", [])]
-        return {
+        bill = {
             "type": "bill",
             "approval_id": approval_id,
             "checkout_session_id": session["checkout_session_id"],
@@ -458,9 +531,15 @@ class BuyerAgent:
             "totals": session["totals"],
             "note": note,
             "change": change,
+            # Workstream E: the browser signs the approval with its own device
+            # key; it needs the merchant + delegate identity to build the
+            # canonical user-intent assertion.
+            "merchant_id": settings.merchant_id,
+            "delegate_id": settings.buyer_agent_id,
         }
+        return bill
 
-    def resume_after_decision(self, conv, approved: bool) -> Generator[dict, None, None]:
+    def resume_after_decision(self, conv, approved: bool, user_assertion: dict | None = None) -> Generator[dict, None, None]:
         """Continue after the user answers the bill card."""
         pending = conv.pending_approval
         conv.pending_approval = None
@@ -478,14 +557,38 @@ class BuyerAgent:
                 "checkout_session_id": csid,
                 "status": payload.get("checkout_session", {}).get("status", "cancelled"),
             }
+            conv.llm_history.append(_state_note({"event": "order_cancelled", "checkout_session_id": csid}))
             yield {"type": "message", "content": "No problem — I cancelled that order. Nothing was charged."}
             return
 
         yield {"type": "message", "content": "Thanks! Processing your payment…"}
-        yield from self._complete_flow(conv, csid)
+        yield from self._complete_flow(conv, csid, user_assertion=user_assertion)
 
-    def _complete_flow(self, conv, csid: str) -> Generator[dict, None, None]:
-        status_code, payload = self.merchant.complete_checkout(csid, intent_mandate_id=conv.intent_mandate_id)
+    def _complete_flow(self, conv, csid: str, user_assertion: dict | None = None) -> Generator[dict, None, None]:
+        try:
+            status_code, payload = self.merchant.complete_checkout(
+                csid,
+                intent_mandate_id=conv.intent_mandate_id,
+                user_assertion=user_assertion,
+            )
+        except Exception as exc:  # noqa: BLE001 — gateway transport failure is not a charge
+            # C9: be truthful when the payment gateway is unreachable. The
+            # merchant already parked the session via `requires_payment`
+            # (nothing charged, no Razorpay order moved money). We must not
+            # claim success we cannot see.
+            conv.active_session_id = None
+            conv.llm_history.append(
+                _state_note({"event": "gateway_unreachable", "checkout_session_id": csid})
+            )
+            yield {
+                "type": "message",
+                "content": (
+                    "⚠️ I couldn't reach the payment gateway to finish your order "
+                    f"(connection issue: {exc}). Nothing was charged and no order was placed. "
+                    "Your basket is safe — just tell me to try again and I'll place it."
+                ),
+            }
+            return
 
         if status_code == 200:
             session = payload.get("checkout_session", {})
@@ -506,6 +609,9 @@ class BuyerAgent:
                     f"It'll be delivered soon.",
                 }
                 conv.active_session_id = None
+                conv.llm_history.append(
+                    _state_note({"event": "order_completed", "total": total, "checkout_session_id": csid})
+                )
             elif status == "payment_pending":
                 rec_status, rec_payload = self.merchant.reconcile(csid)
                 rec_session = (
@@ -526,6 +632,9 @@ class BuyerAgent:
                         "content": f"✅ Good news — reconciliation confirmed your payment of ₹{total} "
                         f"went through. Receipt: {csid}.",
                     }
+                    conv.llm_history.append(
+                        _state_note({"event": "order_completed", "total": total, "checkout_session_id": csid})
+                    )
                 else:
                     yield {
                         "type": "message",
@@ -603,6 +712,9 @@ class BuyerAgent:
                 "No money was charged. Let me find alternatives for you.",
             }
             conv.active_session_id = None
+            conv.llm_history.append(
+                _state_note({"event": "stock_unavailable", "declined_packs": declined_packs})
+            )
             # Deterministic recovery: propose options, ASK, wait. No LLM, no auto-reorder.
             yield from self._propose_substitutes(conv, declined_lines)
             return
@@ -615,10 +727,18 @@ class BuyerAgent:
             "DELEGATION_EXPIRED": "the shopping authorization on this account has expired.",
             "UNAUTHORIZED_AGENT": "this shopping session isn't authorized to place orders.",
             "PAYMENT_FAILED": "the payment was rejected by the gateway.",
+            "PAYMENT_BLOCKED": (
+                "your signed approval couldn't be verified (the signature, key, "
+                "or authorization bounds don't match). To keep you safe, nothing "
+                "was charged and no order was placed — please review and approve again."
+            ),
         }
         reason = friendly.get(error.get("code", ""), error.get("message", "the merchant refused it."))
         yield {"type": "message", "content": f"❌ Sorry — I couldn't place this order because {reason} Nothing was charged."}
         conv.active_session_id = None
+        conv.llm_history.append(
+            _state_note({"event": "order_declined", "code": error.get("code"), "checkout_session_id": csid})
+        )
 
     def present_bill_and_pause(
         self, conv, session: dict, note: str | None = None, change: dict | None = None
@@ -730,6 +850,7 @@ class BuyerAgent:
         kept_items = pending["kept_items"]
 
         if choice == "cancel":
+            conv.llm_history.append(_state_note({"event": "substitution_cancelled"}))
             yield {"type": "message", "content": "Okay — I've dropped that order. Nothing was charged."}
             return
 
@@ -763,11 +884,29 @@ class BuyerAgent:
             "type": "message",
             "content": f"Great choice — swapping in {chosen['name']} ({chosen['size']}) ₹{chosen['price']}…",
         }
-        status_code, payload = self.merchant.create_checkout(items)
+        key = _stable_basket_key(items)
+        if conv.active_session_id and conv.last_create_key and conv.last_create_key != key:
+            try:
+                self.merchant.cancel_checkout(conv.active_session_id)
+            except Exception:  # noqa: BLE001 — best-effort cleanup of a stale live session
+                pass
+            conv.active_session_id = None
+        status_code, payload = self.merchant.create_checkout(items, idempotency_key=key)
         session = payload.get("checkout_session")
-        if status_code == 201 and session and session.get("status") == "requires_payment":
+        if status_code in (200, 201) and session and session.get("status") == "requires_payment":
             conv.active_session_id = session["checkout_session_id"]
+            conv.last_create_key = key
             note = f"Swapped {unavailable['name']} → {chosen['name']} at your suggestion."
+            conv.llm_history.append(
+                _state_note(
+                    {
+                        "event": "substitution_accepted",
+                        "replaced": unavailable["name"],
+                        "chosen": chosen["name"],
+                        "checkout_session_id": session["checkout_session_id"],
+                    }
+                )
+            )
             yield self.present_bill(conv, session, note=note)
             return
         err = payload.get("error", {})

@@ -176,6 +176,13 @@ export default function MoneyStoryDrawer({ sessionId, onClose }) {
           >
             Open full audit trail
           </button>
+          <button
+            className="mini-btn full"
+            style={{ marginTop: 8 }}
+            onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('acg:open-consumer', { detail: sessionId })) }}
+          >
+            Authorization &amp; proof (plain English)
+          </button>
         </div>
       </aside>
     </>

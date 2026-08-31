@@ -70,6 +70,23 @@ def parse_target_pack(query: str) -> dict:
         return {}
 
 
+def canonical_args(args: dict | None) -> str:
+    """Deterministic, order-insensitive key for one tool call's arguments.
+
+    Used to fingerprint duplicate observations (same tool, same normalized
+    arguments) across decision cycles: equivalent JSON forms collapse to one
+    key so an LLM cannot dodge the replay cache with cosmetic re-orders.
+    """
+    def _norm(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(k): _norm(v) for k, v in sorted(value.items(), key=lambda i: str(i[0]))}
+        if isinstance(value, (list, tuple)):
+            return [_norm(v) for v in value]
+        return value
+
+    return json.dumps(_norm(args or {}), sort_keys=True, default=str)
+
+
 def _load_product(db: Session, product_id: str) -> Product:
     product = db.get(Product, product_id)
     if product is None:
@@ -882,7 +899,22 @@ def execute_tool(name: str, args: dict, state: MerchantAgentState) -> dict:
         result = {"success": True, "tool": name, "result": result}
     else:
         result.setdefault("tool", name)
+    state.tool_call_count += 1  # real budget: every executed call counts, success or not
     state.tool_results.append(result)
+
+    # Observation bookkeeping (decision-cycle optimization): successful
+    # deterministic reads are cached per session; a later decision cycle asking
+    # for the SAME read in an UNCHANGED world replays the envelope instead of
+    # re-executing. Any write bumps the world, invalidating stale observations
+    # (a replay is then refused and the read re-runs — always the safe direction).
+    ctx = state.fallback_ctx
+    if name not in READ_TOOLS:
+        ctx["world_version"] = int(ctx.get("world_version", 0)) + 1
+    elif result.get("success"):
+        ctx.setdefault("observe_map", {})[f"{name}|{canonical_args(args)}"] = {
+            "envelope": result,
+            "world": int(ctx.get("world_version", 0)),
+        }
 
     # Intent anchor: remember packs the agent itself verified as targets via
     # read tools — these become the only packs a basket write may contain

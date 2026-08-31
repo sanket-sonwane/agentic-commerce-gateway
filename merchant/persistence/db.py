@@ -1,9 +1,12 @@
-"""SQLite engine/session setup (WAL) plus a process-wide mutation lock.
+"""SQLite engine/session setup (WAL) plus DB-enforced write serialization.
 
-The lock serializes money-critical checkout mutations (create/update/complete/
-cancel/payment callbacks). This is a deliberate MVP simplification: SQLite WAL
-gives safe concurrent reads, and the lock gives serialized writes so reservation
-accounting and idempotency stay correct during the demo.
+Every mutation runs inside a transaction opened with ``BEGIN IMMEDIATE``, so
+SQLite's single-writer (RESERVED) lock is acquired *before* the transaction's
+first read instead of lazily at the first write. Concurrent writers in other
+threads OR other processes therefore cannot commit between a head-read and its
+follow-up write, which is what keeps audit hash-chaining (and money-critical
+checkout mutations: create/update/complete/cancel/payment callbacks) correct.
+The in-process ``mutation_lock`` remains as a fast-path within a process.
 """
 import threading
 from contextlib import contextmanager
@@ -47,20 +50,70 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 mutation_lock = threading.RLock()
 
+# Thread-local state for the active mutate() session so a nested/recursive
+# mutate() reuses the outer serialized transaction instead of deadlocking on a
+# second BEGIN IMMEDIATE.
+_current_mutate = threading.local()
+
+
+def _begin_write(conn, session) -> None:  # noqa: ANN001
+    """Open a serialized SQLite write transaction bound to ``conn``.
+
+    SQLAlchemy AUTOCOMMIT isolation disables pysqlite's implicit deferred BEGIN
+    on this connection (verified: ``dbapi_connection.isolation_level = None``),
+    letting us frame the transaction ourselves. ``BEGIN IMMEDIATE`` acquires the
+    single SQLite writer (RESERVED) lock up front and holds it until the matched
+    COMMIT/ROLLBACK, so the head-read + write cannot interleave with any other
+    writer, in this process or in another process sharing the database file.
+    """
+    conn.execution_options(isolation_level="AUTOCOMMIT")
+    conn.exec_driver_sql("BEGIN IMMEDIATE")
+    session.info["_begin_immediate"] = True
+
 
 @contextmanager
 def mutate():
-    """Serialize money-critical sections."""
-    with mutation_lock:
-        session: Session = SessionLocal()
+    """Serialize money-critical sections across threads AND processes.
+
+    Yields a session bound to a dedicated connection whose transaction was
+    opened with ``BEGIN IMMEDIATE``. The writer lock is released only when this
+    block commits (or rolls back), so a concurrent writer wanting the same lock
+    waits (bounded by ``PRAGMA busy_timeout``) or fails with an explicit
+    ``OperationalError`` -- never by racing a stale read. Nested mutate() calls
+    reuse the outer session.
+    """
+    current = getattr(_current_mutate, "session", None)
+    if current is not None:
+        _current_mutate.depth += 1
         try:
-            yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
+            yield current
         finally:
-            session.close()
+            _current_mutate.depth -= 1
+        return
+
+    with mutation_lock:
+        with engine.connect() as conn:
+            session: Session = Session(
+                bind=conn, autoflush=False, expire_on_commit=False, future=True
+            )
+            _begin_write(conn, session)
+            _current_mutate.session = session
+            _current_mutate.depth = 1
+            try:
+                yield session
+                session.commit()
+                conn.exec_driver_sql("COMMIT")
+            except Exception:
+                try:
+                    conn.exec_driver_sql("ROLLBACK")
+                except Exception:
+                    pass
+                session.rollback()
+                raise
+            finally:
+                session.close()
+                _current_mutate.session = None
+                _current_mutate.depth = 0
 
 
 def read_only():
@@ -99,7 +152,12 @@ def _apply_migrations(engine) -> None:  # noqa: ANN001
             ("verified_payment_amount_paise", "INTEGER NULL DEFAULT NULL"),
             ("execution_mandate_id", "VARCHAR NULL DEFAULT NULL"),
         ],
-        "execution_mandates": [("consumed_at", "DATETIME NULL DEFAULT NULL")],
+        "execution_mandates": [
+            ("consumed_at", "DATETIME NULL DEFAULT NULL"),
+            # Workstream E: optional reference to the user-signed intent assertion.
+            ("user_assertion_id", "VARCHAR NULL DEFAULT NULL"),
+            ("user_assertion_hash", "VARCHAR NULL DEFAULT NULL"),
+        ],
     }
     with engine.begin() as conn:
         inspector = sa.inspect(conn)

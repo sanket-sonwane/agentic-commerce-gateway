@@ -15,6 +15,9 @@ data/
 *.log
 buyer_service_debug.log
 
+# Browser E2E harness junk
+artifacts/e2e/
+
 # Node
 dashboard/node_modules/
 dashboard/dist/

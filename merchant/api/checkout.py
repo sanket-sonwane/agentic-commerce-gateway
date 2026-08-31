@@ -111,6 +111,7 @@ def complete_checkout(checkout_session_id: str, body: CompleteCheckoutRequest,
             delegation_token=body.delegation_token,
             idempotency_key=idempotency_key,
             intent_mandate_id=body.intent_mandate_id,
+            user_assertion=body.user_assertion,
         )
         if idempotency_key and not replayed:
             checkout_service.store_complete_idempotency(db, idempotency_key, checkout_session_id, result)

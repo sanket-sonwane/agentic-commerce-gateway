@@ -18,6 +18,8 @@ os.environ["RAZORPAY_KEY_ID"] = ""
 os.environ["RAZORPAY_KEY_SECRET"] = ""
 # Merchant Agent tests use the deterministic fallback brain (no live NIM calls).
 os.environ["MA_LLM_BRAIN"] = "false"
+# Pin the operator secret so tests are independent of any live .env value.
+os.environ["ADMIN_TOKEN"] = "admin_demo_token"
 
 ROOT = Path(__file__).resolve().parents[2]
 

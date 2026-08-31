@@ -1,7 +1,8 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { SendHorizontal, ArrowDown, Soup, Croissant, ShoppingBasket, Eye } from 'lucide-react'
-import { streamSSE } from '../api.js'
+import { streamSSE, registerUserKey } from '../api.js'
 import { toViewItems, orderTitle } from '../utils/events.js'
+import { mapPaymentState } from '../utils/paymentState.js'
 import MessageBubble from '../components/MessageBubble.jsx'
 import WorkingShimmer from '../components/WorkingShimmer.jsx'
 import QuickReplyChips from '../components/QuickReplyChips.jsx'
@@ -56,12 +57,50 @@ export default function ChatView({ onRequestOps }) {
     await runStream('/chat', { message: text, conversation_id: conversationId })
   }
 
-  async function decide(approved) {
+async function decide(approved) {
     if (!pendingBill || busy) return
     const bill = pendingBill
     setPendingBill(null)
     setEvents(prev => prev.map(ev => (ev === bill ? { ...ev, resolved: approved ? 'approved' : 'cancelled' } : ev)))
-    await runStream(`/conversations/${conversationId}/decision`, { approved })
+    let body = { approved }
+    if (approved) {
+      // Workstream E: approve ⇒ the browser signs a user-intent assertion with
+      // its own device key (private key never leaves localStorage). The public
+      // key is registered once so the merchant can verify consent before money
+      // movement; a rejected signature blocks the whole transaction.
+      setBusy(true)
+      try {
+        const me = await import('../lib/userAssertion.js')
+        const keypair = await me.getOrCreateKeypair()
+        const pem = await me.spkiPemFromPublicKey(keypair.publicKey)
+        const keyId = await me.keyIdFromPem(pem)
+        const ua = await me.buildUserAssertion({
+          checkoutSessionId: bill.checkout_session_id,
+          totalPaise: Math.round((bill.totals?.total ?? 0) * 100),
+          description: `${bill.line_items?.length ?? 0} items from your shopping agent`,
+          merchantId: bill.merchant_id,
+          delegateId: bill.delegate_id,
+        })
+        const reg = await registerUserKey({ user_id: ua.user_id, key_id: keyId, public_key_pem: pem })
+        if (!reg.ok) throw new Error(reg.body?.detail || `Key registration failed (${reg.status})`)
+        body.user_assertion = ua
+        setBusy(false)
+      } catch (err) {
+        // Signing failed → nothing was sent: the order is NOT cancelled and the
+        // bill stays pending server-side. Restore it so the user can re-approve.
+        setBusy(false)
+        setPendingBill(bill)
+        setEvents(prev => prev.map(ev => (ev === bill ? { ...ev, resolved: undefined } : ev)))
+        setEvents(prev => [...prev, {
+          type: 'message',
+          role: 'system',
+          content: `⚠️ I couldn't sign your approval on this device (${err.message}). Nothing was charged — please try again.`,
+          time: Date.now(),
+        }])
+        return
+      }
+    }
+    await runStream(`/conversations/${conversationId}/decision`, body)
   }
 
   async function choose(choice) {
@@ -91,10 +130,13 @@ export default function ChatView({ onRequestOps }) {
 
   function paymentPaid(body) {
     const s = body.checkout_session
+    const state = mapPaymentState(s)
     setEvents(prev => [
       ...prev,
       { type: 'status', checkout_session_id: s.checkout_session_id, status: s.status, payment: s.payment, time: Date.now() },
-      { type: 'message', content: `âœ… Order placed! You paid **â‚¹${s.totals.total}**.`, time: Date.now() },
+      ...(state === 'COMPLETED'
+        ? [{ type: 'message', content: `✅ Order placed! You paid **₹${s.totals.total}**.`, time: Date.now() }]
+        : []),
     ])
   }
 
@@ -143,6 +185,7 @@ export default function ChatView({ onRequestOps }) {
               onChoose={choose}
               onRequestOps={onRequestOps}
               onWhy={setExplainSession}
+              onPaid={paymentPaid}
             />
           ))}
 
@@ -187,7 +230,7 @@ export default function ChatView({ onRequestOps }) {
 
 /* ------------------------------------------------ view-item renderer */
 
-function ViewItem({ item, busy, onDecide, onChoose, onRequestOps, onWhy }) {
+function ViewItem({ item, busy, onDecide, onChoose, onRequestOps, onWhy, onPaid }) {
   switch (item.kind) {
     case 'user':
       return <MessageBubble role="user" content={item.text} />
@@ -207,7 +250,7 @@ function ViewItem({ item, busy, onDecide, onChoose, onRequestOps, onWhy }) {
     case 'swap':
       return <SwapOffer item={item} busy={busy} onChoose={onChoose} />
     case 'payment':
-      return <PaymentSlot ev={item.ev} />
+      return <PaymentSlot ev={item.ev} onPaid={onPaid} />
     case 'caption':
       return <Caption item={item} onRequestOps={onRequestOps} onWhy={onWhy} />
     case 'error':
@@ -344,7 +387,7 @@ function Basket() {
 
 /* ---------------------------------------------- payment slot (the money card) */
 
-function PaymentSlot({ ev }) {
-  return <div className="pay-card-wrapper"><PaymentCard redirect={ev} /></div>
+function PaymentSlot({ ev, onPaid }) {
+  return <div className="pay-card-wrapper"><PaymentCard redirect={ev} onPaid={onPaid} /></div>
 }
 

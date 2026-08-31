@@ -214,6 +214,7 @@ def serialize_session(db: Session, cs: CheckoutSession) -> CheckoutSessionOut:
         status=cs.status,
         buyer_agent_id=cs.buyer_agent_id,
         delegation_id=cs.delegation_id,
+        merchant_id=settings.merchant_id,
         line_items=json.loads(cs.line_items),
         totals=json.loads(cs.totals),
         gating_result=json.loads(cs.gating_result),
@@ -253,6 +254,49 @@ def _assert_transition(current: str, target: str) -> None:
             http_status=409,
             details={"current_status": current},
         )
+
+
+# Per payment outcome.status the finalizer's intended (non-terminal) target state.
+_FINALIZE_TARGET: dict[str, str] = {
+    "completed": "completed",
+    "pending": "payment_pending",
+    "declined": "declined",
+}
+
+
+def _assert_finalizable_state(db: Session, cs: CheckoutSession, outcome: "PaymentOutcome") -> None:
+    """C-3 defense-in-depth: the finalizer independently proves the session is in
+    a legally finalizable state for the supplied payment outcome, BEFORE any
+    irreversible effect (stock/reservation consumption, status mutation, receipts,
+    success audits). Never mutates; raises INVALID_STATE_TRANSITION otherwise.
+    """
+    origin = cs.status
+    target = _FINALIZE_TARGET.get(outcome.status)
+
+    # Terminal states are immutable: a late callback or direct call must never
+    # re-complete, re-decline, or re-cancel (no duplicate charge/stock/receipt).
+    if origin in TERMINAL_STATES:
+        raise ProtocolError(
+            ErrorCode.INVALID_STATE_TRANSITION,
+            f"Cannot finalize a {origin} session to {target or outcome.status}",
+            http_status=409,
+            details={"current_status": origin, "target": target or outcome.status},
+        )
+
+    if target is None:
+        raise ProtocolError(
+            ErrorCode.INVALID_STATE_TRANSITION,
+            f"Unsupported payment outcome status '{outcome.status}'",
+            http_status=409,
+            details={"current_status": origin, "outcome_status": outcome.status},
+        )
+
+    # Legitimate reconciliation no-op: a still-unresolved payment_pending session
+    # being reconciled (reconcile_pending returned pending) stays payment_pending.
+    if origin == "payment_pending" and target == "payment_pending":
+        return
+
+    _assert_transition(origin, target)
 
 
 # ---------------------------------------------------------------- idempotency
@@ -472,7 +516,11 @@ def update_checkout(
         db.flush()
         return err
 
-    inventory_service.release_session_reservations(db, cs.checkout_session_id)
+    inventory_service.release_session_reservations(
+        db,
+        cs.checkout_session_id,
+        reason="Basket update; previous reservation was released before re-reserving",
+    )
     expires_at = inventory_service.create_reservations(db, cs.checkout_session_id, resolved)
     cs.line_items = json.dumps(resolved)
     cs.totals = json.dumps(totals)
@@ -527,7 +575,12 @@ def cancel_checkout(
             details={"current_status": cs.status},
         )
 
-    inventory_service.release_session_reservations(db, cs.checkout_session_id)
+    inventory_service.release_session_reservations(
+        db,
+        cs.checkout_session_id,
+        actor="buyer_agent",
+        reason="Checkout was cancelled and reserved stock was released",
+    )
     cs.status = "cancelled"
     audit_service.append_event(
         db,
@@ -595,7 +648,12 @@ def confirm_checkout(
         )
 
     if not accept_new_terms:
-        inventory_service.release_session_reservations(db, cs.checkout_session_id)
+        inventory_service.release_session_reservations(
+            db,
+            cs.checkout_session_id,
+            actor="buyer_agent",
+            reason="Buyer declined new terms; reserved stock was released",
+        )
         cs.status = "cancelled"
         audit_service.append_event(
             db,
@@ -643,6 +701,7 @@ def complete_checkout(
     delegation_token: str,
     idempotency_key: str | None = None,
     intent_mandate_id: str | None = None,
+    user_assertion: dict | None = None,
 ) -> tuple[CompleteResponse, bool]:
     """The highest-risk operation. Returns (response, replayed_flag).
 
@@ -675,7 +734,11 @@ def complete_checkout(
     old_totals = json.loads(cs.totals)
 
     def _fail(code: ErrorCode, message: str, rules: list[str], summary: str) -> CompleteResponse:
-        inventory_service.release_session_reservations(db, cs.checkout_session_id)
+        inventory_service.release_session_reservations(
+            db,
+            cs.checkout_session_id,
+            reason="Final validation failed; reservation was released",
+        )
         cs.status = "declined"
         cs.decline_code = code.value
         audit_service.append_event(
@@ -792,6 +855,81 @@ def complete_checkout(
         payload={"checks": [c.model_dump() for c in gating.checks]},
     )
 
+    # --- 4.5 Workstream E: user-signed intent assertion (root of authority) ---
+    # If the buying human's consent was cryptographically signed (browser holds
+    # the private key), EVERY check is enforced BEFORE any execution mandate,
+    # Razorpay order, or payment exists. A single failed check blocks the
+    # transaction entirely (PAYMENT_BLOCKED). Absent == legacy authorization
+    # path, explicitly labeled as such in provenance.
+    user_assertion_id: str | None = None
+    user_assertion_hash: str | None = None
+    if user_assertion:
+        from merchant.ap2.authorization_service import (
+            store_user_assertion,
+            verify_user_assertion,
+        )
+
+        # The ceiling check compares against the exact execution total; derive
+        # paise the same way the Execution Mandate does a few steps below.
+        ua_total_paise = int(round(new_totals["total"] * 100))
+        ua_checks, ua_detail, ua_assertion_id = verify_user_assertion(
+            db,
+            user_assertion,
+            checkout_session_id=checkout_session_id,
+            buyer_agent_id=buyer_agent_id,
+            total_paise=ua_total_paise,
+        )
+        if not all(ua_checks.values()):
+            failed = ", ".join(name for name, ok in ua_checks.items() if not ok)
+            audit_service.append_event(
+                db,
+                actor="user",
+                action="user_assertion_rejected",
+                checkout_session_id=cs.checkout_session_id,
+                decision="declined",
+                rules_fired=["authorization_verify:user_assertion"],
+                reasoning_summary=(
+                    f"User intent assertion rejected ({failed}); "
+                    "no mandate/order/payment created"
+                ),
+                payload={"checks": ua_checks},
+            )
+            return _fail(
+                ErrorCode.PAYMENT_BLOCKED,
+                f"User authorization could not be verified: {failed}",
+                ["authorization_verify:user_assertion"],
+                f"User intent assertion failed ({failed}); Razorpay NOT called",
+            ), False
+        stored = store_user_assertion(
+            db,
+            user_assertion,
+            key_id=str(user_assertion["user_key_id"]),
+            signature=str(user_assertion["signature"]),
+        )
+        user_assertion_id = stored.assertion_id
+        user_assertion_hash = stored.canonical_payload_hash
+        audit_service.append_event(
+            db,
+            actor="user",
+            action="user_assertion_verified",
+            checkout_session_id=cs.checkout_session_id,
+            decision="approved",
+            rules_fired=["authorization_verify:user_assertion"],
+            reasoning_summary=(
+                f"User {stored.user_id} signed consent verified "
+                f"(key {stored.user_key_id}, ceiling ₹{ua_total_paise / 100}); "
+                "single-use consent consumed for this execution"
+            ),
+            payload={
+                "assertion_id": stored.assertion_id,
+                "user_key_id": stored.user_key_id,
+                "delegate_id": stored.delegate_id,
+                "canonical_payload_hash": stored.canonical_payload_hash,
+                "max_amount_paise": ua_total_paise,
+                "checks": ua_checks,
+            },
+        )
+
     # --- 5. AP2: build + sign the Execution Mandate (PRD §14–15) ---
     # Freeze the exact basket about to be charged, then verify it before any
     # money movement. Fail closed: any verification failure -> NO Razorpay call.
@@ -844,6 +982,8 @@ def complete_checkout(
         items=mandate_items,
         total_paise=amount_paise,
         intent_mandate_id=intent_mandate_id,
+        user_assertion_id=user_assertion_id,
+        user_assertion_hash=user_assertion_hash,
     )
 
     policy_decision = authorization_service.sign_policy_decision(
@@ -882,6 +1022,8 @@ def complete_checkout(
             "decision_id": policy_decision.decision_id,
             "authorized_amount_paise": amount_paise,
             "canonical_payload_hash": exec_mandate.canonical_payload_hash,
+            "user_assertion_id": exec_mandate.user_assertion_id,
+            "user_assertion_hash": exec_mandate.user_assertion_hash,
             "checks": verify_checks,
         },
     )
@@ -1137,6 +1279,10 @@ def settle_probe(cs: CheckoutSession, payment_id: str) -> int | None:
 
 
 def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome) -> CompleteResponse:
+    # C-3: last line of defense. Prove the session is legally finalizable for this
+    # outcome before touching anything irreversible.
+    _assert_finalizable_state(db, cs, outcome)
+
     cs.payment_driver = cs.payment_driver or settings.payment_driver
     cs.razorpay_order_id = outcome.order_id or cs.razorpay_order_id
     cs.razorpay_payment_id = outcome.payment_id
@@ -1163,7 +1309,12 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome)
 
         if not amount_match:
             binding_declined = True
-            inventory_service.release_session_reservations(db, cs.checkout_session_id)
+            inventory_service.release_session_reservations(
+                db,
+                cs.checkout_session_id,
+                actor="razorpay",
+                reason="Amount binding mismatch; reservation was released and payment blocked",
+            )
             cs.status = "declined"
             cs.decline_code = ErrorCode.PAYMENT_BLOCKED.value
             audit_service.append_event(
@@ -1199,7 +1350,11 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome)
             for item in items:
                 pack = db.get(Pack, item["pack_id"])
                 pack.stock_actual = max(0, pack.stock_actual - item["quantity"])
-            inventory_service.consume_session_reservations(db, cs.checkout_session_id)
+            inventory_service.consume_session_reservations(
+                db,
+                cs.checkout_session_id,
+                reason="Payment succeeded; reserved stock was consumed",
+            )
             cs.status = "completed"
             audit_service.append_event(
                 db,
@@ -1240,7 +1395,12 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: PaymentOutcome)
             reasoning_summary=outcome.message or "Payment unresolved; reconciliation required",
         )
     else:
-        inventory_service.release_session_reservations(db, cs.checkout_session_id)
+        inventory_service.release_session_reservations(
+            db,
+            cs.checkout_session_id,
+            actor="razorpay",
+            reason="Gateway declined the payment; reservation was released",
+        )
         cs.status = "declined"
         cs.decline_code = ErrorCode.PAYMENT_FAILED.value
         audit_service.append_event(

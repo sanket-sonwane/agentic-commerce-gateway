@@ -173,6 +173,26 @@ def verify_with_key(raw_signature: bytes, data: bytes, public_key_pem_str: str) 
         return False
 
 
+def is_ed25519_public_key_pem(public_key_pem_str: str) -> bool:
+    """Validate that a PEM parses as a 32-byte Ed25519 SubjectPublicKeyInfo."""
+    try:
+        pub = serialization.load_pem_public_key(public_key_pem_str.strip().encode("utf-8"))
+        return isinstance(pub, Ed25519PublicKey) and len(pub.public_bytes_raw()) == 32
+    except (ValueError, TypeError):
+        return False
+
+
+def sign_utf8(utf8_payload: str) -> str:
+    """Ed25519.sign over raw UTF-8 bytes (used for non-JSON canonical strings,
+    e.g. the user intent assertion canonical string)."""
+    return _private_key().sign(utf8_payload.encode("utf-8")).hex()
+
+
+def verify_utf8(utf8_payload: str, signature: str, public_key_pem_str: str) -> bool:
+    """Verify an Ed25519 signature over raw UTF-8 bytes with a supplied public key."""
+    return verify_with_key(bytes.fromhex(signature), utf8_payload.encode("utf-8"), public_key_pem_str)
+
+
 # ---------------------------------------------------------------- helpers
 
 

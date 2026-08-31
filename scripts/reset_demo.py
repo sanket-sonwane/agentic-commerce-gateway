@@ -1,5 +1,10 @@
 """Reset the demo to a pristine state: fresh DB, catalog, delegations.
 
+DEVELOPER-ONLY HARD WIPE. This stops the merchant server (:8000) and deletes
+the SQLite file (``data/merchant.db*``) entirely — including every audit
+event. It is distinct from the runtime admin endpoint ``POST /admin/demo/reset``,
+which only clears transactions and PRESERVES the append-only audit trail.
+
 Usage:
     python -m scripts.reset_demo
 """

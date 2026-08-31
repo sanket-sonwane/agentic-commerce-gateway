@@ -15,10 +15,12 @@ delegates to the deterministic control plane (FR-MA-13/14).
 import json
 import logging
 import re
+import time
 from typing import Any, Optional
 
 from merchant.agent import prompts, tools
 from merchant.agent.state import MerchantAgentState
+from merchant.agent import timing as agent_timing
 from merchant.config import settings
 
 logger = logging.getLogger("merchant.agent")
@@ -160,9 +162,15 @@ def _transaction_state_note(state: MerchantAgentState) -> str:
             "execution_mode=buyer_completes: YOU CANNOT REQUEST PAYMENT. When create_checkout or "
             "update_checkout succeeds, your next action is finish(outcome='ready_for_completion')."
         )
+    basket_digest = (
+        "none yet"
+        if not state.current_items
+        else ", ".join(f"{i.get('pack_id')} x{i.get('quantity')}" for i in state.current_items[:5])
+    )
     return (
         "TRANSACTION STATE (authoritative runtime facts, refreshed every turn):\n"
         f"- checkout_session_id: {state.checkout_session_id or 'none yet'}\n"
+        f"- current basket: {basket_digest}\n"
         f"- {mode_line}\n"
         "- requested_quantity: "
         f"{_requested_quantity(state)} (set by the buyer request; NEVER copy stock/inventory "
@@ -219,6 +227,9 @@ def _llm_decide(state: MerchantAgentState) -> tuple[str, dict, str, Optional[str
     transport failure.
     """
     from openai import OpenAI
+
+    # Decision-cycle evidence: one honest NIM round-trip per deliberation.
+    state.fallback_ctx["llm_call_count"] = int(state.fallback_ctx.get("llm_call_count", 0)) + 1
 
     client = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key, timeout=45.0)
     messages = [
@@ -515,6 +526,7 @@ def _next_action(state: MerchantAgentState) -> tuple[str, dict, str, Optional[st
     override = state.fallback_ctx.get("brain_override")
     use_llm = (override == "llm") if override else settings.ma_llm_brain
     if use_llm and not state.fallback_ctx.get("llm_disabled"):
+        start = time.perf_counter()
         try:
             return _llm_decide(state)
         except _Finish:
@@ -522,8 +534,60 @@ def _next_action(state: MerchantAgentState) -> tuple[str, dict, str, Optional[st
         except Exception as exc:  # noqa: BLE001 — degrade to the deterministic brain
             logger.warning("LLM brain unavailable (%s); falling back to deterministic decider", exc)
             state.fallback_ctx["llm_disabled"] = True
+            agent_timing.record(state.agent_session_id, "llm_decide", start,
+                                time.perf_counter(), outcome="fallback_error", llm_model=settings.llm_model)
+        else:
+            agent_timing.record(state.agent_session_id, "llm_decide", start,
+                                time.perf_counter(), outcome="ok", llm_model=settings.llm_model)
+    start = time.perf_counter()
     name, args, reasoning = _fallback_decide(state)
+    agent_timing.record(state.agent_session_id, "fallback_decide", start,
+                        time.perf_counter(), outcome="ok")
     return name, args, reasoning, None
+
+
+def _maybe_replay_observation(state: MerchantAgentState, name: str, args: dict) -> Optional[dict]:
+    """Replay a deterministic read whose world has not moved since observation.
+
+    Only successful READ_TOOLS are cached (by tools.execute_tool). A replay is
+    exact when no write intervened: any write bumps world_version and forces a
+    fresh read (over-invalidation is always the SAFE direction). A repeated
+    identical read is escalated to a BLOCKED_REPEAT directive so the brain
+    cannot spin on duplicate observations.
+
+    Returns the §51 envelope to use INSTEAD of executing (replayed or a
+    blocked-repeat refusal), or None when the call must execute.
+    """
+    if name not in tools.READ_TOOLS:
+        return None
+    ctx = state.fallback_ctx
+    entry = (ctx.get("observe_map") or {}).get(f"{name}|{tools.canonical_args(args)}")
+    if entry is None:
+        return None
+    if int(entry.get("world", -1)) != int(ctx.get("world_version", 0)):
+        return None  # the world advanced since the observation — the read must re-run
+
+    repeats = int(entry.get("repeat_count", 0)) + 1
+    entry["repeat_count"] = repeats
+    if repeats > 1:
+        entry["blocked_repeat"] = True
+        return {
+            "success": False,
+            "tool": name,
+            "error": {
+                "code": "BLOCKED_REPEAT",
+                "message": (
+                    f"Repeating {name} with identical arguments returns the same observation in an "
+                    "unchanged world. Act on the prior result — continue toward checkout/finish or "
+                    "call find_alternative — do NOT re-read."
+                ),
+                "retryable": False,
+            },
+        }
+
+    envelope = dict(entry["envelope"])
+    envelope["replayed_from_observation"] = True
+    return envelope
 
 
 # ---------------------------------------------------------------- loop
@@ -535,6 +599,7 @@ class MerchantAgent:
     # -- public API --------------------------------------------------
 
     def run(self, state: MerchantAgentState) -> MerchantAgentState:
+        agent_timing.begin_session(state.agent_session_id)
         while state.status == "running":
             state.iteration_count += 1
             # Each buyer decision opens one fresh reasoning window: the pause is
@@ -551,6 +616,12 @@ class MerchantAgent:
                     "merchant_agent_unable_to_fulfill",
                     f"Iteration budget ({budget}) exhausted; no payment attempted.",
                 )
+                break
+            # Decision seam: a policy-clean basket that just went live ends the
+            # loop deterministically instead of burning a (frequently wrong)
+            # extra reasoning round. Completion failures keep the loop alive so
+            # the next decision cycle can adapt.
+            if self._decision_point(state):
                 break
             try:
                 name, args, reasoning, tool_call_id = _next_action(state)
@@ -597,27 +668,12 @@ class MerchantAgent:
                 break
 
             state.record_action(name, _args_digest(args), reasoning)
-            envelope = tools.execute_tool(name, args, state)
-            if tool_call_id is not None:
-                # Close the OpenAI tool-call round: the model must observe its
-                # tool result before choosing the next action.
-                state.llm_history.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": json.dumps(envelope, default=str)[:1800],
-                    }
-                )
-            ok = bool(envelope.get("success"))
-            _audit(
-                action=f"agent_{name}",
-                decision="approved" if ok else "declined",
-                summary=reasoning or f"executed {name}",
-                state=state,
-                payload={"tool": name, "args": _args_digest(args), "result": _result_digest(envelope)},
-                rules_fired=[] if ok else [envelope.get("error", {}).get("code", "UNKNOWN")],
-            )
-            self._guide_next_action(state, name, envelope)
+            envelope = self._observe_or_execute(state, name, args, reasoning, tool_call_id)
+            if name == "create_checkout" and envelope.get("success"):
+                # A loop-executed, policy-clean checkout leaves only one correct
+                # follow-up (mode-appropriate completion/handoff); the next turn
+                # takes it deterministically via the decision seam.
+                state.fallback_ctx["pending_continuation"] = True
 
             if self._post_action(state, name, envelope):
                 break
@@ -635,6 +691,9 @@ class MerchantAgent:
         state.fallback_ctx["budget_windows"] = min(
             4, int(state.fallback_ctx.get("budget_windows", 1)) + 1
         )
+        # A buyer decision is a world change: observations from before the pause
+        # may not be replayed against it.
+        state.fallback_ctx["world_version"] = int(state.fallback_ctx.get("world_version", 0)) + 1
 
         _audit(
             action="buyer_proposal_decision" if kind == "substitution" else "buyer_terms_decision",
@@ -669,12 +728,222 @@ class MerchantAgent:
                     ),
                 },
             )
+            # Decision seam: the next-ranked candidate from the ALREADY-OBSERVED
+            # list is proposed deterministically; the model only re-decides when
+            # that list is exhausted.
+            if self._continue_after_rejection(state, proposal):
+                return state
             return self.run(state)
 
         self._accept_substitution(state, proposal)
         return self.run(state)
 
     # -- internal ----------------------------------------------------
+
+    def _decision_point(self, state: MerchantAgentState) -> bool:
+        """Deterministic loop short-circuit (decision-cycle optimization).
+
+        A policy-clean basket that went LIVE through a loop-executed
+        create_checkout (or a buyer-accepted alternative / confirmed terms)
+        never needs another reasoning round to terminate: the mode-appropriate
+        handoff is fully determined. Running the model again here is wasted work
+        AND the most common source of mode/payment-truth mistakes, which is why
+        this seam exists instead of prompting.
+
+        Returns True when the loop must stop; False keeps the adaptive cycle
+        alive (e.g. gated completion failed and the agent must adapt).
+        """
+        ctx = state.fallback_ctx
+        if not ctx.get("pending_continuation"):
+            return False
+        ctx["pending_continuation"] = None
+
+        last = state.tool_results[-1] if state.tool_results else None
+        if not (
+            last
+            and last.get("success")
+            and last.get("tool") in ("create_checkout", "update_checkout", "terms_confirmed")
+        ):
+            return False
+
+        if state.execution_mode == "buyer_completes":
+            self._apply_finish(
+                state,
+                "ready_for_completion",
+                "basket_ready_for_buyer_payment",
+                "Basket is live under policy; the buyer completes payment via the protocol.",
+            )
+            return True
+
+        # agent_completed: run the SAME gated money ladder deterministically.
+        # Every consequence (completed / awaiting_authorization / PRICE_CHANGED /
+        # STOCK_UNAVAILABLE / hard failure) flows through _post_action unchanged,
+        # so the seam can never weaken payment truth.
+        state.record_action(
+            "request_completion",
+            {},
+            "Auto-executing gated completion for the live, policy-clean basket (decision seam).",
+        )
+        _rc_start = time.perf_counter()
+        envelope = tools.execute_tool("request_completion", {}, state)
+        agent_timing.record(state.agent_session_id, "request_completion", _rc_start,
+                            time.perf_counter(), outcome="ok" if envelope.get("success") else "error")
+        _audit(
+            action="agent_request_completion",
+            decision="approved" if envelope.get("success") else "declined",
+            summary="Gated completion executed deterministically for the live policy-clean checkout.",
+            state=state,
+            payload={"tool": "request_completion", "result": _result_digest(envelope)},
+            rules_fired=[] if envelope.get("success") else [envelope.get("error", {}).get("code", "UNKNOWN")],
+        )
+        self._note_for_llm(state, {"event": "gated_auto_completion", "result": envelope})
+        return self._post_action(state, "request_completion", envelope)
+
+    def _observe_or_execute(
+        self,
+        state: MerchantAgentState,
+        name: str,
+        args: dict,
+        reasoning: str,
+        tool_call_id: Optional[str],
+    ) -> dict:
+        """Run one decision, replaying unchanged deterministic reads.
+
+        Returns the §51 envelope. A replayed envelope carries the
+        `replayed_from_observation` marker and still consumes a tool-call
+        budget slot (budgets remain honest ceilings, never soft).
+        """
+        replay = _maybe_replay_observation(state, name, args)
+        if replay is None:
+            _start = time.perf_counter()
+            envelope = tools.execute_tool(name, args, state)
+            agent_timing.record(state.agent_session_id, "merchant_tool", _start,
+                                time.perf_counter(), tool=name,
+                                outcome="ok" if envelope.get("success") else "error")
+            if tool_call_id is not None:
+                # Close the OpenAI tool-call round: the model must observe its
+                # tool result before choosing the next action.
+                state.llm_history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": json.dumps(envelope, default=str)[:1800],
+                    }
+                )
+            _audit(
+                action=f"agent_{name}",
+                decision="approved" if envelope.get("success") else "declined",
+                summary=reasoning or f"executed {name}",
+                state=state,
+                payload={"tool": name, "args": _args_digest(args), "result": _result_digest(envelope)},
+                rules_fired=[] if envelope.get("success") else [envelope.get("error", {}).get("code", "UNKNOWN")],
+            )
+            self._guide_next_action(state, name, envelope)
+            return envelope
+
+        state.tool_call_count += 1
+        state.tool_results.append(replay)
+        if tool_call_id is not None:
+            state.llm_history.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": json.dumps(replay, default=str)[:1800],
+                }
+            )
+        ok = bool(replay.get("success"))
+        _audit(
+            action=f"agent_{name}_replayed",
+            decision="approved" if ok else "blocked",
+            summary=(
+                f"replayed prior {name} observation (world unchanged)"
+                if ok
+                else f"blocked duplicate {name} read (world unchanged); act on the prior observation"
+            ),
+            state=state,
+            payload={"tool": name, "args": _args_digest(args), "result": _result_digest(replay)},
+            rules_fired=[] if ok else [replay.get("error", {}).get("code", "UNKNOWN")],
+        )
+        return replay
+
+    def _last_find_alternative(self, state: MerchantAgentState) -> Optional[dict]:
+        for envelope in reversed(state.tool_results):
+            if envelope.get("tool") == "find_alternative" and envelope.get("success"):
+                return envelope
+        return None
+
+    def _continue_after_rejection(self, state: MerchantAgentState, rejected_proposal: dict) -> bool:
+        """Deterministic next-candidate seam (decision-cycle optimization).
+
+        A REJECTED substitution does not require a model to pick the next
+        option: the ranked candidate list was already observed. Propose the next
+        eligible candidate from that same list and pause for the buyer.
+
+        Returns True when a follow-up proposal was issued (session paused for
+        the buyer's decision), False to fall back to the adaptive loop (list
+        exhausted / no usable observation).
+        """
+        envelope = self._last_find_alternative(state)
+        if envelope is None:
+            return False
+        result = envelope.get("result") or {}
+        requested = result.get("requested") or {}
+        excluded = set(state.excluded_pack_ids)
+        offered = state.fallback_ctx.setdefault("offered_pack_ids", [])
+        candidate = next(
+            (a for a in (result.get("alternatives") or []) if a["pack_id"] not in excluded and a["pack_id"] not in offered),
+            None,
+        )
+        if candidate is None:
+            return False
+        offered.append(candidate["pack_id"])
+
+        orig = rejected_proposal.get("original") or {}
+        args = {
+            "reason_code": "requested_pack_unavailable",
+            "original": {
+                "product_id": requested.get("product_id") or orig.get("product_id"),
+                "pack_id": requested.get("pack_id") or orig.get("pack_id"),
+                "quantity": requested.get("quantity", orig.get("quantity", 1)),
+            },
+            "proposal": {
+                "product_id": candidate["product_id"],
+                "pack_id": candidate["pack_id"],
+                "quantity": candidate["quantity"],
+            },
+            "message": (
+                f"Requested pack unavailable; propose {candidate['name']} "
+                f"({candidate['size']}{candidate['unit']}) x{candidate['quantity']} at Rs.{candidate['price']}."
+            ),
+        }
+        state.record_action(
+            "request_confirmation",
+            _args_digest(args),
+            "Buyer rejected the previous alternative; proposing the next-ranked candidate (decision seam).",
+        )
+        issued = tools.execute_tool("request_confirmation", args, state)
+        _audit(
+            action="agent_request_confirmation",
+            decision="approved" if issued.get("success") else "declined",
+            summary="Proposed the next-ranked alternative after buyer rejection (decision seam).",
+            state=state,
+            payload={"tool": "request_confirmation", "args": _args_digest(args), "result": _result_digest(issued)},
+            rules_fired=[] if issued.get("success") else [issued.get("error", {}).get("code", "UNKNOWN")],
+        )
+        if not issued.get("success"):
+            return False
+        self._note_for_llm(
+            state,
+            {
+                "event": "buyer_rejected_proposal",
+                "instruction": (
+                    "The buyer rejected the previous substitution. The next-ranked alternative from "
+                    "the SAME observed candidate list was proposed to the buyer automatically; the "
+                    "agent is paused for that structured decision."
+                ),
+            },
+        )
+        return self._post_action(state, "request_confirmation", issued)
 
     def _note_for_llm(self, state: MerchantAgentState, content: dict) -> None:
         """Feed a system-applied outcome back into the LLM transcript so the
@@ -868,6 +1137,11 @@ class MerchantAgent:
                 "create_checkout", {"items": items}, state
             )
         ok = bool(envelope.get("success"))
+        if ok:
+            # A buyer-accepted alternative that landed a policy-clean basket only
+            # has one correct follow-up (complete/hand off) — take it
+            # deterministically on the next turn, not via another reasoning round.
+            state.fallback_ctx["pending_continuation"] = True
         self._note_for_llm(
             state,
             {
@@ -914,6 +1188,10 @@ class MerchantAgent:
             summary=f"Buyer accepted new terms on {state.checkout_session_id}: {detail}",
             state=state,
         )
+        if ok:
+            # Confirmed terms leave the basket LIVE and policy-clean — the next
+            # turn completes/hands off deterministically (decision seam).
+            state.fallback_ctx["pending_continuation"] = True
 
     def _reject_terms(self, state: MerchantAgentState) -> None:
         """Buyer declined new terms -> cancel session, graceful decline."""

@@ -37,6 +37,8 @@ export const ACTION_META = {
   confirmation_rejected: { title: 'Buyer rejected terms', kind: 'buyer' },
   inventory_adjusted: { title: 'Operator changed stock', kind: 'system', chips: p => (p && 'old' in p ? [{ label: `${p.old} → ${p.new}` }] : []) },
   demo_reset: { title: 'Demo reset', kind: 'system' },
+  demo_reset_requested: { title: 'Demo reset requested', kind: 'system', chips: p => (p?.audit_events_before != null ? [{ label: `audit events before: ${p.audit_events_before}` }] : []) },
+  demo_reset_completed: { title: 'Demo reset completed', kind: 'system', chips: p => (p?.audit_history ? [{ label: `audit ${p.audit_history}` }] : []) },
 
   // ---------- razorpay ----------
   razorpay_order_creation: { title: 'Creating gateway order', kind: 'money' },

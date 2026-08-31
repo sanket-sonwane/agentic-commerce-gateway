@@ -16,10 +16,12 @@ class Conversation:
     last_query: str = ""                                   # most recent discovery query
     intent_mandate_id: str | None = None                   # AP2 signed intent authorizing scope
     last_basket_items: list[dict] = field(default_factory=list)
+    last_create_key: str | None = None                     # E2: idempotency key of active basket
     last_candidates: list[dict] = field(default_factory=list)  # most recent discovery result
     declined_packs: list[str] = field(default_factory=list)    # packs declined as out-of-stock
     offered_pack_ids: list[str] = field(default_factory=list)  # substitutes already shown
     substitution_rounds: int = 0
+    timings: list[dict] = field(default_factory=list)  # latest turn's measured stages (Workstream A)
     busy: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
 

@@ -125,6 +125,22 @@ class CompleteCheckoutRequest(BaseModel):
     # supplied, the Execution Mandate is linked to it and the transaction must
     # fall within its constraints or completion is blocked (fail closed).
     intent_mandate_id: Optional[str] = None
+    # Workstream E: optional user-signed UserIntentAssertion (root of authority).
+    # The browser signs a canonical consent string with the user's own Ed25519
+    # key (private key stays in localStorage, never sent). The merchant verifies
+    # the signature, hash, expiry, single-use, subject, merchant, delegate and
+    # constraint ceiling BEFORE any Execution Mandate / Razorpay order / payment
+    # exists. Absent = legacy authorization path (explicitly labeled as such).
+    user_assertion: Optional[dict[str, Any]] = None
+
+
+class UserKeyRegister(BaseModel):
+    """Register a buying human's Ed25519 PUBLIC key (never the private key)."""
+
+    user_id: str = Field(min_length=1)
+    key_id: str = Field(min_length=1)
+    public_key_pem: str = Field(min_length=16)
+    status: str = "active"
 
 
 class CancelCheckoutRequest(BaseModel):
@@ -175,6 +191,9 @@ class CheckoutSessionOut(BaseModel):
     status: str
     buyer_agent_id: str
     delegation_id: str
+    # Public identity of the merchant serving this session (used by the
+    # user-signed intent assertion to bind consent to the correct merchant).
+    merchant_id: str
     line_items: list[dict[str, Any]]
     totals: dict[str, Any]
     gating_result: dict[str, Any]
@@ -244,6 +263,88 @@ class ProvenanceVerifyResponse(BaseModel):
     checks: list[ProvenanceCheck]
     summary: str
     artifacts: dict[str, Any] = {}
+
+
+# ---------- consumer provenance projection ----------
+
+
+class ConsumerTransaction(BaseModel):
+    id: str
+    status: str
+    amount: int  # whole rupees, from authoritative totals
+    currency: str = "INR"
+    merchant: str
+    agent: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConsumerJourneyStage(BaseModel):
+    stage: str
+    status: str  # completed | reached | failed | not_reached
+    title: str
+    summary: str
+    timestamp: Optional[datetime] = None
+    evidence_ref: Optional[str] = None
+
+
+class ConsumerAuthorization(BaseModel):
+    authorized_by: str
+    agent: str
+    scope: str
+    max_amount_paise: Optional[int] = None
+    merchant_scope: list[str] = []
+    expires_at: Optional[datetime] = None
+    verified: bool = True
+    authority_note: str = ""
+    # user_signed | delegation | none — how this transaction's authority root
+    # was established. user_signed means a user-owned key cryptographically
+    # verified a UserIntentAssertion for this transaction.
+    authorization_source: str = "delegation"
+
+
+class ConsumerCheck(BaseModel):
+    name: str
+    status: str  # pass | fail | skipped
+    summary: str
+
+
+class ConsumerPayment(BaseModel):
+    provider: str = "Razorpay"
+    status: str  # not_called | order_created | pending | verified | declined
+    razorpay_called: bool = False
+    order_id: Optional[str] = None
+    payment_id: Optional[str] = None
+    amount: Optional[int] = None  # whole rupees
+    amount_paise: Optional[int] = None
+
+
+class ConsumerProof(BaseModel):
+    execution_mandate: str = "unavailable"  # verified | failed | unavailable
+    policy_decision: str = "unavailable"
+    decision_receipt: str = "unavailable"
+    provenance: str = "unavailable"
+    audit_chain: str = "unavailable"
+    key_id: Optional[str] = None
+    mandate_id: Optional[str] = None
+    receipt_id: Optional[str] = None
+    verifier_status: str = "unverified"  # VALID | INVALID | NOT_AVAILABLE
+
+
+class ConsumerProvenanceResponse(BaseModel):
+    checkout_session_id: str
+    transaction: ConsumerTransaction
+    journey: list[ConsumerJourneyStage] = []
+    authorization: ConsumerAuthorization
+    checks: list[ConsumerCheck] = []
+    payment: ConsumerPayment
+    proof: ConsumerProof
+    current_stage: str
+    last_successful_stage: Optional[str] = None
+    failure_stage: Optional[str] = None
+    failure_reason: Optional[str] = None
+    stopped_at: Optional[str] = None
+    razorpay_called: bool = False
 
 
 # ---------- merchant agent (PRD §9–14, §19) ----------
