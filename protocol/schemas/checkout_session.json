@@ -3,7 +3,7 @@
   "$id": "checkout_session.json",
   "title": "CheckoutSession",
   "type": "object",
-  "required": ["checkout_session_id", "version", "status", "buyer_agent_id", "delegation_id", "line_items", "totals", "gating_result", "reservation"],
+  "required": ["checkout_session_id", "version", "status", "buyer_agent_id", "delegation_id", "merchant_id", "line_items", "totals", "gating_result", "reservation", "created_at", "updated_at"],
   "properties": {
     "checkout_session_id": {"type": "string", "pattern": "^cs_"},
     "version": {"type": "integer", "minimum": 1},
@@ -13,6 +13,7 @@
     },
     "buyer_agent_id": {"type": "string"},
     "delegation_id": {"type": "string"},
+    "merchant_id": {"type": "string", "description": "Public merchant identity; binds user consent to this merchant"},
     "line_items": {
       "type": "array",
       "items": {
@@ -76,13 +77,22 @@
     },
     "payment": {
       "type": "object",
+      "description": "Present only once a gateway order exists. Simulated payments were removed from production permanently.",
       "properties": {
-        "driver": {"enum": ["sim", "checkout"]},
+        "driver": {"enum": ["saved", "checkout"], "description": "NOTE: 'sim' is a pytest-only hermetic fixture, never a production contract value"},
         "order_id": {"type": "string"},
         "payment_id": {"type": ["string", "null"]},
         "amount": {"type": "integer"},
         "currency": {"const": "INR"},
-        "awaiting_authorization": {"type": "boolean"}
+        "authorized_amount_paise": {"type": "integer", "description": "Amount bound by the Execution Mandate (C-1)"},
+        "execution_mandate_id": {"type": "string"},
+        "razorpay_order_amount_paise": {"type": "integer", "description": "Amount captured on the gateway order (C-1)"},
+        "verified_payment_amount_paise": {"type": "integer", "description": "Amount the gateway reported as settled (C-1)"},
+        "amount_match": {"type": "boolean", "description": "C-1 three-way binding result (authorized == order == verified)"},
+        "awaiting_authorization": {"type": "boolean", "description": "A live order on a non-terminal session — card UI pending"},
+        "key_id": {"type": "string", "description": "Gateway public key id handed to the checkout UI"},
+        "customer_id": {"type": ["string", "null"], "description": "Saved-payment customer id (saved driver)"},
+        "save_card": {"type": "boolean", "description": "True when the saved-driver UI can use card-on-file"}
       }
     },
     "razorpay_order_id": {"type": ["string", "null"]},

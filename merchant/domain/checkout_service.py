@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from merchant.config import settings
-from merchant.persistence.db import mutate, read_only, utcnow
 from merchant.persistence.models.dto import (
     CheckoutSessionOut,
     CompleteResponse,
