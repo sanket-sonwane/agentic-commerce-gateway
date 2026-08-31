@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ReceiptText, ShieldCheck, CreditCard, RotateCcw, Copy, Check, LogOut, LockKeyhole } from 'lucide-react'
 import { adminFetch, adminLogin, adminLogout, merchantFetch } from '../api.js'
-import RazorpayPayCard from '../components/RazorpayPayCard.jsx'
+import PaymentCard from '../components/PaymentCard.jsx'
 import AuditTimeline from '../components/AuditTimeline.jsx'
 import MerchantAgentSection, { AgentTraceDetail } from '../components/MerchantAgentTrace.jsx'
 
@@ -269,7 +269,7 @@ function SessionDetail({ sessionId }) {
       )}
       {session?.status === 'requires_payment' && session?.payment?.awaiting_authorization && session?.razorpay_order_id && (
         <div className="pay-card-wrapper">
-          <RazorpayPayCard
+          <PaymentCard
             redirect={{
               checkout_session_id: session.checkout_session_id,
               razorpay_order_id: session.razorpay_order_id,
