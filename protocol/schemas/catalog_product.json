@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "catalog_product.json",
+  "title": "CatalogProduct",
+  "description": "Authoritative machine-readable product read with its variant packs (GET /catalog/products/{product_id})",
+  "type": "object",
+  "required": ["product_id", "name", "category", "brand", "description", "tags", "packs"],
+  "properties": {
+    "product_id": {"type": "string", "pattern": "^prod_"},
+    "name": {"type": "string"},
+    "category": {"type": "string"},
+    "brand": {"type": "string"},
+    "description": {"type": "string"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "sale_basis": {"const": "per_pack"},
+    "currency": {"const": "INR"},
+    "packs": {
+      "type": "array",
+      "items": {"$ref": "catalog_pack.json"}
+    }
+  }
+}

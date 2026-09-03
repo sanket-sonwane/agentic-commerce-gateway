@@ -62,6 +62,107 @@ class ProtocolError(Exception):
         return body
 
 
+# ---------- capability manifest ----------
+
+
+class ManifestEndpoint(BaseModel):
+    """A public machine-readable protocol endpoint referenced by the manifest."""
+    method: str
+    path: str
+    description: str = ""
+
+
+class ManifestCapability(BaseModel):
+    """A single merchant capability advertised in the manifest (read-only)."""
+    name: str
+    description: str = ""
+    read: bool = True
+    write: bool = False
+
+
+class PaymentCapability(BaseModel):
+    provider: str
+    test_mode: bool
+    methods: list[str] = []
+    driver: str = ""
+    merchant_initiated: bool = False
+
+
+class FulfillmentCapability(BaseModel):
+    methods: list[str] = []
+    states: list[str] = []
+    tracking_supported: bool = False
+
+
+class VerificationKeyInfo(BaseModel):
+    key_id: str
+    algorithm: str = ""
+    format: str = ""
+    # A URL under which the merchant exposes (or documents) the public key.
+    # The raw PEM is never embedded in the manifest.
+    public_reference: str = ""
+
+
+class MerchantManifest(BaseModel):
+    """Machine-readable projection of the merchant's public capabilities.
+
+    READ-ONLY. Exposes only capabilities that actually exist. Never contains
+    secrets (no private keys, no Razorpay secrets, no tokens).
+    """
+    merchant_id: str
+    name: str
+    protocol: dict[str, Any]
+    currency: str
+    supported_categories: list[str] = []
+    capabilities: list[ManifestCapability] = []
+    endpoints: list[ManifestEndpoint] = []
+    payment: PaymentCapability
+    fulfillment: FulfillmentCapability
+    verification: VerificationKeyInfo
+    currency_fraction: int = 100  # paise per billing unit
+
+
+# ---------- public catalog (machine-readable commerce semantics) ----------
+
+
+class CatalogPackOut(BaseModel):
+    """Authoritative machine-readable pack read with explicit commerce semantics.
+
+    An unknown buyer must be able to unambiguously understand quantity, unit,
+    pack size, sale basis, variant identity and price basis — this DTO makes
+    that explicit rather than leaving it to be inferred from strings.
+    """
+    pack_id: str
+    product_id: str
+    variant_id: str  # the pack IS the variant (sibling packs differ by pack_id)
+    name: str
+    size: float  # pack_size (numeric)
+    pack_size: float  # explicit alias
+    unit: str  # ml | l | g | kg | pcs
+    quantity: int  # count for the sale basis (per pack = 1)
+    sale_basis: str  # "per_pack"
+    unit_price: int  # authoritative INR price per pack (whole rupees)
+    price_basis: str  # "per_pack"
+    currency: str
+    stock_actual: int
+    reserved: int
+    available: int
+    availability: str  # in_stock | out_of_stock
+
+
+class CatalogProductOut(BaseModel):
+    """Authoritative machine-readable product read (with its variant packs)."""
+    product_id: str
+    name: str
+    category: str
+    brand: str
+    description: str
+    tags: list[str] = []
+    packs: list[CatalogPackOut] = []
+    sale_basis: str = "per_pack"
+    currency: str = "INR"
+
+
 # ---------- discovery ----------
 
 
@@ -263,6 +364,53 @@ class ProvenanceVerifyResponse(BaseModel):
     checks: list[ProvenanceCheck]
     summary: str
     artifacts: dict[str, Any] = {}
+
+
+# ---------- orders ----------
+
+
+class OrderLineItem(BaseModel):
+    product_id: str
+    pack_id: str
+    name: str
+    category: str = ""
+    quantity: int
+    unit_price: int
+
+
+class OrderPaymentRef(BaseModel):
+    provider: str
+    driver: str | None = None
+    order_id: str | None = None
+    payment_id: str | None = None
+
+
+class OrderOut(BaseModel):
+    order_id: str
+    checkout_session_id: str
+    buyer_agent_id: str
+    merchant_id: str
+    merchant: str
+    currency: str = "INR"
+    authorized_amount_paise: int
+    amount: float | None = None
+    line_items: list[OrderLineItem] = []
+    order_status: str
+    fulfillment_status: str
+    fulfillment_method: str | None = None
+    destination: str | None = None
+    estimated_delivery: str | None = None
+    tracking_reference: str | None = None
+    payment: OrderPaymentRef
+    execution_mandate_id: str | None = None
+    decision_receipt_id: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class OrderListResponse(BaseModel):
+    orders: list[OrderOut]
+    count: int
 
 
 # ---------- consumer provenance projection ----------

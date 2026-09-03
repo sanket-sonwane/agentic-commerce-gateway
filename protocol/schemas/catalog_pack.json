@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "catalog_pack.json",
+  "title": "CatalogPack",
+  "description": "Authoritative machine-readable pack read with explicit commerce semantics (GET /catalog/packs/{pack_id})",
+  "type": "object",
+  "required": [
+    "pack_id", "product_id", "variant_id", "name", "size", "pack_size",
+    "unit", "quantity", "sale_basis", "unit_price", "price_basis",
+    "currency", "stock_actual", "reserved", "available", "availability"
+  ],
+  "properties": {
+    "pack_id": {"type": "string", "pattern": "^pack_"},
+    "product_id": {"type": "string", "pattern": "^prod_"},
+    "variant_id": {"type": "string", "description": "The pack is the variant; sibling packs differ by pack_id/size/unit/price"},
+    "name": {"type": "string"},
+    "size": {"type": "number", "description": "Numeric pack size, e.g. 500"},
+    "pack_size": {"type": "number", "description": "Alias of size"},
+    "unit": {"enum": ["ml", "l", "g", "kg", "pcs"], "description": "Physical unit of the pack size"},
+    "quantity": {"type": "integer", "minimum": 1, "description": "Count for the sale basis (per_pack = 1)"},
+    "sale_basis": {"const": "per_pack"},
+    "unit_price": {"type": "integer", "description": "Authoritative INR price per pack (whole rupees)"},
+    "price_basis": {"const": "per_pack"},
+    "currency": {"const": "INR"},
+    "stock_actual": {"type": "integer"},
+    "reserved": {"type": "integer"},
+    "available": {"type": "integer"},
+    "availability": {"enum": ["in_stock", "out_of_stock"]}
+  }
+}
