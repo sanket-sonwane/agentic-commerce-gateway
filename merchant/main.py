@@ -20,11 +20,31 @@ from merchant.persistence.models.dto import ErrorCode, ProtocolError
 logger = logging.getLogger("merchant")
 
 
+def _configure_app_logging() -> None:
+    """Ensure merchant.* INFO logs (including the reconcile worker) surface.
+
+    uvicorn does not install a handler on the root logger, so INFO messages
+    from ``merchant.reconcile`` and friends would otherwise be dropped.
+    """
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+        )
+        logger.addHandler(handler)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _configure_app_logging()
     init_db()
     logger.info("Merchant agent ready | driver=%s", settings.payment_driver)
+    from merchant.domain.reconcile_worker import start_reconcile_worker
+
+    stop_reconcile = await start_reconcile_worker()
     yield
+    await stop_reconcile()
 
 
 app = FastAPI(

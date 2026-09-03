@@ -311,7 +311,7 @@ class ConsumerCheck(BaseModel):
 
 class ConsumerPayment(BaseModel):
     provider: str = "Razorpay"
-    status: str  # not_called | order_created | pending | verified | declined
+    status: str  # not_called | order_created | pending | authorized | verified | declined
     razorpay_called: bool = False
     order_id: Optional[str] = None
     payment_id: Optional[str] = None

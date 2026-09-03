@@ -59,6 +59,46 @@ def has_credentials() -> bool:
     return bool(settings.razorpay_key_id and settings.razorpay_key_secret)
 
 
+def is_transient_exc(exc: Exception) -> bool:
+    """True for network/transport blips worth a safe retry (idempotent ops only)."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    try:  # the razorpay SDK talks over `requests`
+        import requests
+
+        if isinstance(exc, requests.exceptions.RequestException):
+            return True
+    except Exception:  # noqa: BLE001 — requests unavailable; ignore
+        pass
+    try:
+        import razorpay.errors
+
+        if isinstance(exc, razorpay.errors.ServerError):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _retry_idempotent(fn, *, attempts: int = 4, base_seconds: float = 1.0):
+    """Bounded backoff retry for IDEMPOTENT Razorpay calls on transient errors.
+
+    Safe ONLY because the wrapped operation cannot double-execute — e.g.
+    customer.create with fail_existing=0 returns the existing customer.
+    """
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            if not is_transient_exc(exc) or attempt == attempts - 1:
+                break
+            time.sleep(base_seconds * (attempt + 1))
+    assert last is not None
+    raise last
+
+
 def create_order(
     checkout_session_id: str,
     amount_rupees: int,
@@ -144,10 +184,33 @@ def fetch_order_payments(order_id: str) -> list[dict]:
     return result.get("items", [])
 
 
-def reconcile_pending(order_id: str) -> PaymentOutcome:
-    """Determine final state for a payment_pending session. Never retries."""
+RECONCILE_POLL_INTERVAL_SECONDS = 5.0
+
+
+def _enrich_payments(order_id: str, payment_id: str | None) -> list[dict]:
+    """Order-scoped payments plus the specific payment id when not listed.
+
+    ``/payments/create/recurring`` returns the payment id without always listing
+    it on the order yet; fetching by id keeps reconciliation authoritative even
+    when the order list lags.
+    """
+    items = fetch_order_payments(order_id)
+    if not payment_id:
+        return items
+    if any(p.get("id") == payment_id for p in items):
+        return items
     try:
-        items = fetch_order_payments(order_id)
+        pay = fetch_payment(payment_id)
+    except Exception:  # noqa: BLE001 — order list is the fallback truth
+        return items
+    if pay.get("id"):
+        items = [pay, *items]
+    return items
+
+
+def _reconcile_once(order_id: str, payment_id: str | None) -> PaymentOutcome:
+    try:
+        items = _enrich_payments(order_id, payment_id)
     except Exception as exc:  # noqa: BLE001
         return PaymentOutcome(
             status="pending",
@@ -164,6 +227,26 @@ def reconcile_pending(order_id: str) -> PaymentOutcome:
             message="Confirmed captured during reconciliation",
             raw={"amount": captured[0].get("amount")},
         )
+    authorized = [p for p in items if p.get("status") == "authorized"]
+    if authorized:
+        pay = authorized[0]
+        try:
+            capture_payment(pay["id"], pay.get("amount", 0))
+        except Exception:  # noqa: BLE001 — pending; another pass will finish it
+            return PaymentOutcome(
+                status="pending",
+                order_id=order_id,
+                payment_id=pay.get("id"),
+                error_code="PAYMENT_PENDING",
+                message="Authorized but capture unresolved; reconciliation required",
+            )
+        return PaymentOutcome(
+            status="completed",
+            order_id=order_id,
+            payment_id=pay["id"],
+            message="Captured after authorization during reconciliation",
+            raw={"amount": pay.get("amount")},
+        )
     failed = [p for p in items if p.get("status") == "failed"]
     if failed and not [p for p in items if p.get("status") in ("authorized", "created")]:
         return PaymentOutcome(
@@ -179,6 +262,34 @@ def reconcile_pending(order_id: str) -> PaymentOutcome:
         error_code="PAYMENT_PENDING",
         message="No captured payment yet; still unresolved",
     )
+
+
+def reconcile_pending(
+    order_id: str,
+    *,
+    payment_id: str | None = None,
+    poll_for_seconds: float | None = None,
+) -> PaymentOutcome:
+    """Determine final state for a payment_pending session.
+
+    Razorpay test-mode token debits sit at the bank in ``created`` ("Amount yet
+    to be authenticated by the bank") and capture a few minutes later, so a
+    single snapshot is unreliable. This enriches by payment id and, when
+    ``poll_for_seconds`` is given, re-polls briefly until the outcome is
+    terminal or the window elapses. It NEVER initiates a charge — it reads
+    provider truth and, only for an already-authorized payment, attempts capture
+    of that same payment.
+    """
+    if poll_for_seconds:
+        deadline = time.monotonic() + max(0.0, poll_for_seconds)
+        while True:
+            outcome = _reconcile_once(order_id, payment_id)
+            if outcome.status in ("completed", "declined"):
+                return outcome
+            if time.monotonic() >= deadline:
+                return outcome
+            time.sleep(RECONCILE_POLL_INTERVAL_SECONDS)
+    return _reconcile_once(order_id, payment_id)
 
 
 def verify_checkout_signature(order_id: str, payment_id: str, signature: str) -> bool:
@@ -208,7 +319,12 @@ def _customer_identity(buyer_agent_id: str) -> tuple[str, str]:
 
 
 def ensure_customer(buyer_agent_id: str) -> dict:
-    """Create-or-fetch a Razorpay Customer for the human behind this buyer scope."""
+    """Create-or-fetch a Razorpay Customer for the human behind this buyer scope.
+
+    Idempotent (fail_existing=0), so transient transport failures (e.g.
+    RemoteDisconnected) are retried with backoff — a dropped connection must
+    never kill a checkout before a single payment call has been made.
+    """
     if not has_credentials():
         if not _sim_allowed():
             raise RuntimeError(
@@ -216,16 +332,19 @@ def ensure_customer(buyer_agent_id: str) -> dict:
             )
         return {"id": f"cust_sim_{buyer_agent_id}", "_simulated_no_credentials": True}
     email, contact = _customer_identity(buyer_agent_id)
-    customer = _get_client().customer.create(
-        {
-            "name": f"Shopper ({buyer_agent_id})",
-            "email": email,
-            "contact": contact,
-            "fail_existing": "0",  # return the existing customer instead of erroring
-            "notes": {"buyer_agent_id": buyer_agent_id},
-        }
-    )
-    return customer
+
+    def _create() -> dict:
+        return _get_client().customer.create(
+            {
+                "name": f"Shopper ({buyer_agent_id})",
+                "email": email,
+                "contact": contact,
+                "fail_existing": "0",  # return the existing customer instead of erroring
+                "notes": {"buyer_agent_id": buyer_agent_id},
+            }
+        )
+
+    return _retry_idempotent(_create)
 
 
 def fetch_payment(payment_id: str) -> dict:
@@ -346,16 +465,17 @@ def charge_with_token(
             rejection_class=classify_token_rejection(body),
         )
 
+    payment_id = body.get("razorpay_payment_id") or body.get("id")
     pay_status = body.get("status")
     if pay_status in ("captured", "authorized"):
         if pay_status == "authorized":
             try:
-                capture_payment(body["id"], amount_paise)
+                capture_payment(payment_id, amount_paise)
             except Exception:  # noqa: BLE001 — treat as pending for reconciliation
                 return PaymentOutcome(
                     status="pending",
                     order_id=order_id,
-                    payment_id=body.get("id"),
+                    payment_id=payment_id,
                     error_code="PAYMENT_PENDING",
                     message="Authorized but capture unresolved; reconciliation required",
                     raw=body,
@@ -363,7 +483,7 @@ def charge_with_token(
         return PaymentOutcome(
             status="completed",
             order_id=order_id,
-            payment_id=body.get("id"),
+            payment_id=payment_id,
             message="Charged using saved card token (server-side)",
             raw={"method": body.get("method"), "card_last4": (body.get("card") or {}).get("last4")},
         )
@@ -371,15 +491,31 @@ def charge_with_token(
         return PaymentOutcome(
             status="declined",
             order_id=order_id,
-            payment_id=body.get("id"),
+            payment_id=payment_id,
             error_code="PAYMENT_FAILED",
             message=str(body.get("error_description") or "Saved-card charge failed"),
+            raw=body,
+        )
+    if pay_status in (None, "", "created"):
+        # create/recurring returns the payment id (razorpay_payment_id) without a
+        # status; the bank settles ("yet to be authenticated") minutes later and
+        # Razorpay test mode auto-captures. Park as pending with the real id so
+        # reconciliation can finalize it — never block the HTTP call on the bank.
+        return PaymentOutcome(
+            status="pending",
+            order_id=order_id,
+            payment_id=payment_id,
+            error_code="PAYMENT_PENDING",
+            message=(
+                "Charged via saved card token; payment created at gateway — awaiting "
+                "bank authentication/capture; auto-reconciliation will finalize it"
+            ),
             raw=body,
         )
     return PaymentOutcome(
         status="pending",
         order_id=order_id,
-        payment_id=body.get("id"),
+        payment_id=payment_id,
         error_code="PAYMENT_PENDING",
         message=f"Gateway state '{pay_status}' is unresolved; reconciliation required",
         raw=body,

@@ -283,14 +283,29 @@ def _build_payment(cs, events: list) -> ConsumerPayment:
     amount = totals.get("total")
 
     # Deterministic payment status from authoritative evidence.
+    #   verified  — gateway confirmed capture; money moved.
+    #   authorized — gateway created a payment object (real payment_id exists)
+    #                but capture is unresolved (test-mode bank settlement or
+    #                manual reconciliation pending).  Distinct from "pending"
+    #                which means only an order was created and no payment object
+    #                exists yet.
+    #   pending   — order created at gateway; no payment object yet.
+    #   declined  — gateway rejected the payment.
+    #   order_created — order exists but no payment action was taken.
+    #   not_called — no Razorpay interaction at all.
     if not called:
         status = "not_called"
     elif cs.status == "completed" and any(e.action == "payment_success" for e in events):
         status = "verified"
     elif any(e.action == "payment_failure" for e in events) or cs.decline_code == "PAYMENT_FAILED":
         status = "declined"
-    elif cs.status == "payment_pending" or any(e.action == "payment_pending" for e in events):
-        status = "pending"
+    elif cs.status == "payment_pending":
+        # payment_pending means Razorpay was called; distinguish:
+        #   - payment_id exists → a real payment was initiated/authorized
+        #   - no payment_id → only an order was created
+        status = "authorized" if cs.razorpay_payment_id else "pending"
+    elif any(e.action == "payment_pending" for e in events):
+        status = "authorized" if cs.razorpay_payment_id else "pending"
     elif cs.razorpay_order_id:
         status = "order_created"
     else:

@@ -82,8 +82,8 @@ def approve_bill(page) -> None:
     log("approve clicked -> browser now signs a user intent assertion")
 
 
-def pay_with_razorpay(page) -> None:
-    """Drive Razorpay's REAL Checkout modal with the test card."""
+def pay_with_razorpay(page, card_number="4111 1111 1111 1111") -> None:
+    """Drive Razorpay's REAL Checkout modal with the given test card."""
     snap(page, "04_razorpay_land")
     frame = None
     deadline = time.time() + 60
@@ -148,7 +148,7 @@ def pay_with_razorpay(page) -> None:
         frame.locator('input[name="save"]').first.check(timeout=4000)
     except Exception:
         pass
-    card.fill("4111 1111 1111 1111")
+    card.fill(card_number)
     frame.locator(
         'input[name="card[expiry]"], input[name="card.expiry"], input[placeholder*="MM/YY"], input[data-testid="cardExpiry"], input[autocomplete="cc-exp"]'
     ).first.fill("12/34")

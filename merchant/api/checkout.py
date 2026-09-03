@@ -114,7 +114,7 @@ def complete_checkout(checkout_session_id: str, body: CompleteCheckoutRequest,
             intent_mandate_id=body.intent_mandate_id,
             user_assertion=body.user_assertion,
         )
-        if idempotency_key and not replayed:
+        if idempotency_key and not replayed and not (result.error and result.error.get("retryable")):
             checkout_service.store_complete_idempotency(db, idempotency_key, checkout_session_id, result)
         session_out = result.checkout_session
         status = session_out.status

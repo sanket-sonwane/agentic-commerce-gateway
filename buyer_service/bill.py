@@ -143,15 +143,38 @@ class BillFlowMixin:
                         _state_note({"event": "order_completed", "total": total, "checkout_session_id": csid})
                     )
                 else:
-                    yield {
-                        "type": "message",
-                        "content": (
-                            "⏳ The connection to the payment gateway dropped while creating your order, "
-                            "so this attempt was parked safely. Nothing was charged and no order exists "
-                            f"at Razorpay yet. Receipt reference: {csid}. Tell me what you'd like again "
-                            "and I'll place a fresh order."
-                        ),
-                    }
+                    # The gateway has created/authorized a real payment object for
+                    # this session (test-mode token debits sit at the bank and
+                    # capture a few minutes later). This is NOT a dropped
+                    # connection — money was initiated and is awaiting capture.
+                    # Distinguish from the case where no payment object exists yet.
+                    rec_pay = rec_session.get("payment", {}) or {}
+                    if rec_pay.get("payment_id"):
+                        yield {
+                            "type": "status",
+                            "checkout_session_id": csid,
+                            "status": "payment_pending",
+                            "payment": rec_pay,
+                        }
+                        yield {
+                            "type": "message",
+                            "content": (
+                                "⏳ Your payment was authorized and is waiting for the bank to "
+                                "confirm it (this is normal for auto-pay — it settles within a few "
+                                f"minutes). No amount is confirmed as captured yet, but it is held "
+                                f"against this order, so nothing was lost. Receipt: {csid}."
+                            ),
+                        }
+                    else:
+                        yield {
+                            "type": "message",
+                            "content": (
+                                "⏳ The payment gateway hasn't confirmed a payment for this order "
+                                f"yet. Nothing was charged and no order exists at Razorpay as of "
+                                f"now. Receipt: {csid}. Tell me what you'd like again and I'll place "
+                                "a fresh order."
+                            ),
+                        }
                 conv.active_session_id = None
             elif status == "requires_payment" and session.get("payment", {}).get("awaiting_authorization"):
                 pay = session.get("payment", {})
@@ -236,12 +259,26 @@ class BillFlowMixin:
             "PAYMENT_FAILED": "the payment was rejected by the gateway.",
             "PAYMENT_BLOCKED": (
                 "your signed approval couldn't be verified (the signature, key, "
-                "or authorization bounds don't match). To keep you safe, nothing "
-                "was charged and no order was placed — please review and approve again."
+                "or authorization bounds don't match). To keep you safe, no order "
+                "was placed — please review and approve again."
             ),
         }
         reason = friendly.get(error.get("code", ""), error.get("message", "the merchant refused it."))
-        yield {"type": "message", "content": f"❌ Sorry — I couldn't place this order because {reason} Nothing was charged."}
+        # Be truthful about money: only claim "nothing was charged" when the
+        # backend proves no payment object exists for this session.
+        charged_suffix = " Nothing was charged."
+        try:
+            _, cs_payload = self.merchant.get_checkout(csid)
+            cs_session = (
+                cs_payload.get("checkout_session", {})
+                if isinstance(cs_payload, dict)
+                else {}
+            )
+            if (cs_session.get("payment") or {}).get("payment_id"):
+                charged_suffix = ""
+        except Exception:  # noqa: BLE001 — stay conservative on lookup failure
+            pass
+        yield {"type": "message", "content": f"❌ Sorry — I couldn't place this order because {reason}{charged_suffix}"}
         conv.active_session_id = None
         conv.llm_history.append(
             _state_note({"event": "order_declined", "code": error.get("code"), "checkout_session_id": csid})

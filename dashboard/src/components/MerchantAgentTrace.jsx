@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bot, ShieldCheck, ShieldX, CircleHelp, CreditCard, BadgeCheck, UserCheck } from 'lucide-react'
 import { merchantFetch } from '../api.js'
+import { AGENT_STATUS } from '../utils/terminology.js'
 
 // Groups audit events by merchant agent session id.
 export function useAgentSessions() {
@@ -37,6 +38,10 @@ const STATUS_COLORS = {
   declined: 'declined',
   unable_to_fulfill: 'declined',
   awaiting_payment_authorization: 'payment_pending',
+}
+
+function agentStatusLabel(status) {
+  return AGENT_STATUS[status] || status?.replace(/_/g, ' ') || ''
 }
 
 function previewText(ev) {
@@ -88,7 +93,7 @@ export function AgentTraceDetail({ agentSessionId }) {
         <div className="explain-box" style={{ marginBottom: 10 }}>
           <div className="headline">“{session.buyer_request}”</div>
           <div className="kv"><b>session</b> {session.agent_session_id}</div>
-          <div className="kv"><b>status</b> {String(session.status).replace(/_/g, ' ')}</div>
+          <div className="kv"><b>status</b> {agentStatusLabel(session.status)}</div>
           <div className="kv"><b>budget used</b> {session.iterations} iterations · {session.tool_calls} tool calls</div>
           {outcome.message && <div className="kv"><b>outcome</b> {outcome.message}</div>}
           {outcome.reason_code && <div className="kv mono">{outcome.reason_code}</div>}
@@ -160,20 +165,20 @@ export function AgentTraceDetail({ agentSessionId }) {
             ))}
           </div>
         ) : (
-          <div className="muted">No deterministic evaluation yet.</div>
+          <div className="muted">No safety checks yet.</div>
         )}
 
         <h3><CreditCard size={13} /> Payment</h3>
         <div className="kv">
-          <b>Razorpay invoked</b>{' '}
-          <span className={razorpayTouched ? 'intact-yes' : 'intact-no'}>{razorpayTouched ? 'YES' : 'NO'}</span>
+          <b>Payment sent</b>{' '}
+          <span className={razorpayTouched ? 'intact-yes' : 'intact-no'}>{razorpayTouched ? 'Yes' : 'No'}</span>
         </div>
         {paid && (
-          <div className="kv intact-yes"><BadgeCheck size={13} style={{ verticalAlign: -2 }} /> Paid via gated completion ✓</div>
+          <div className="kv intact-yes"><BadgeCheck size={13} style={{ verticalAlign: -2 }} /> Payment completed ✓</div>
         )}
-        {!paid && razorpayTouched && <div className="kv">awaiting authorization / pending</div>}
+        {!paid && razorpayTouched && <div className="kv">Payment waiting for authorization</div>}
         {!paid && !razorpayTouched && session.status !== 'completed' && (
-          <div className="muted">No payment attempted.</div>
+          <div className="muted">No payment was attempted.</div>
         )}
       </div>
     </>

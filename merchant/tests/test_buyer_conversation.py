@@ -266,6 +266,73 @@ def test_unrelated_conversation_stays_grounded_in_state(routed_merchant, buy_cli
     assert "message" in types(e2)
 
 
+# -------------------------------- C9b authorized-awaiting-capture truthfulness
+
+def _bill_then_decision(buy_client, monkeypatch, complete_payload, reconcile_payload):
+    import buyer_service.tools as bt
+    script = [
+        msg_toolcall("discover_products", {"query": "milk"}),
+        msg_toolcall("create_checkout_session", {
+            "items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}]
+        }),
+    ]
+    with FakeDriver(script) as drv:
+        e1 = chat(buy_client, "buy amul milk please")
+    cid = conv_id(e1)
+    assert "bill" in types(e1)
+
+    calls = {}
+
+    def fake_complete(self, *a, **k):
+        calls["complete"] = True
+        return 200, {"checkout_session": complete_payload}
+
+    def fake_reconcile(self, *a, **k):
+        calls["reconcile"] = True
+        return 200, {"checkout_session": reconcile_payload}
+
+    monkeypatch.setattr(bt.MerchantClient, "complete_checkout", fake_complete)
+    monkeypatch.setattr(bt.MerchantClient, "reconcile", fake_reconcile)
+    with buy_client.stream("POST", f"/conversations/{cid}/decision", json={"approved": True}) as r:
+        return cid, calls, drain_sse(r)
+
+
+def test_payment_pending_with_payment_object_does_not_claim_unresolved(routed_merchant, buy_client, monkeypatch):
+    """A payment_pending session that already has a payment object (authorized,
+    awaiting capture) must NEVER be narrated as 'none of the message
+    connection dropped / nothing was charged / no order exists'."""
+    pay = {"payment_id": "pay_authorized_1", "order_id": "order_authorized_1"}
+    pending = {
+        "checkout_session_id": "cs_auth",
+        "status": "payment_pending",
+        "payment": pay,
+        "totals": {"total": 95},
+    }
+    _, calls, e2 = _bill_then_decision(buy_client, monkeypatch, pending, pending)
+    assert calls.get("reconcile")
+    text = " ".join(x.get("content", "") for x in e2 if x.get("type") == "message")
+    assert "awaiting" in text.lower() or "authorized" in text.lower()
+    assert "nothing was charged" not in text.lower()
+    assert "connection to the payment gateway dropped" not in text.lower()
+    assert "no order exists" not in text.lower()
+
+
+def test_payment_pending_without_payment_object_stays_truthful(routed_merchant, buy_client, monkeypatch):
+    """A payment_pending session with NO payment object yet must NOT claim it is
+    authorized/awaiting capture — the honest unresolved story stays."""
+    pending_no_pay = {
+        "checkout_session_id": "cs_pend",
+        "status": "payment_pending",
+        "payment": {"order_id": "order_pending_1"},
+        "totals": {"total": 95},
+    }
+    _, calls, e2 = _bill_then_decision(buy_client, monkeypatch, pending_no_pay, pending_no_pay)
+    assert calls.get("reconcile")
+    text = " ".join(x.get("content", "") for x in e2 if x.get("type") == "message")
+    assert "nothing was charged" in text.lower()
+    assert "awaiting" not in text.lower()
+
+
 # ----------------------------------- C9 gateway-unreachable truthfulness
 
 def test_gateway_unreachable_is_truthful(routed_merchant, buy_client, monkeypatch):

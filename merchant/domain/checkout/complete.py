@@ -380,6 +380,35 @@ def complete_checkout(
         try:
             customer = payment_service.ensure_customer(cs.buyer_agent_id)
         except Exception as exc:  # noqa: BLE001 — credentials/config problems
+            if payment_service.is_transient_exc(exc):
+                # Transport blip (e.g. RemoteDisconnected) on the idempotent
+                # customer create AFTER internal retries. No charge was made —
+                # keep the session retryable instead of permanently declining a
+                # checkout for a network drop.
+                audit_service.append_event(
+                    db,
+                    actor="merchant_agent",
+                    action="customer_setup_error",
+                    checkout_session_id=cs.checkout_session_id,
+                    decision="info",
+                    reasoning_summary=(
+                        f"Transient customer-setup failure ({exc}); Razorpay NOT "
+                        "called; session kept retryable"
+                    ),
+                )
+                db.flush()
+                return CompleteResponse(
+                    checkout_session=serialize_session(db, cs),
+                    error={
+                        "code": ErrorCode.PAYMENT_FAILED.value,
+                        "message": (
+                            "Razorpay customer setup hit a transient network error; "
+                            "payment not initiated — retry completion"
+                        ),
+                        "retryable": True,
+                        "details": {},
+                    },
+                ), False
             return _fail(
                 ErrorCode.PAYMENT_FAILED,
                 f"Razorpay customer setup failed ({exc}); payment not initiated",

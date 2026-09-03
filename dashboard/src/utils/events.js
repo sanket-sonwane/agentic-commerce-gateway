@@ -1,33 +1,24 @@
 /**
- * SSE event → UI contract (the suppression/humanization layer).
+ * SSE event \u2192 UI contract (the suppression/humanization layer).
  *
  * Chat renders ONLY what this module returns. Internal machinery
  * (tool calls, discovery payloads, raw session ids) is folded into a
- * single collapsed activity summary — visible on demand, never noise.
+ * single collapsed activity summary \u2014 visible on demand, never noise.
+ *
+ * Human status uses centralized terminology from terminology.js.
  */
+import { humanStatus as _humanStatus } from './terminology.js'
 
 export const SUPPRESSED_TYPES = new Set(['conversation_started', 'tool', 'found'])
 
-const STATUS_COPY = {
-  completed: { icon: '✅', text: 'Order placed' },
-  cancelled: { icon: '🚫', text: 'Order cancelled' },
-  declined: { icon: '', text: "Order couldn't be placed" },
-  payment_pending: { icon: '⏳', text: 'Payment pending — nothing was charged' },
-  requires_payment: { icon: '🔐', text: 'Waiting for your payment' },
-  requires_confirmation: { icon: '', text: 'Waiting for your confirmation' },
-}
+export { _humanStatus as humanStatus }
 
-export function humanStatus(status) {
-  const copy = STATUS_COPY[status]
-  return copy ? `${copy.icon} ${copy.text}`.trim() : status?.replace(/_/g, ' ')
-}
-
-/** Short human title for a bill/substitution event ("Milk ×2 + ₹40 delivery"). */
+/** Short human title for a bill/substitution event ("Milk \u00D72 + \u20B940 delivery"). */
 export function orderTitle(lineItems = []) {
   if (!lineItems.length) return 'your order'
   const first = lineItems[0]
   const rest = lineItems.length - 1
-  const base = `${first.name}${first.quantity > 1 ? ` ×${first.quantity}` : ''}`
+  const base = `${first.name}${first.quantity > 1 ? ` \u00D7${first.quantity}` : ''}`
   return rest > 0 ? `${base} +${rest} more` : base
 }
 
@@ -35,14 +26,14 @@ export function orderTitle(lineItems = []) {
  * Reduce raw SSE events into render items.
  *
  * Output item kinds:
- *   user        – user bubble            { text }
- *   ai          – assistant bubble       { text, tone? }
- *   order       – order-ready + chips    { ev }   (bill)
- *   swap        – substitution + chips   { ev }   (substitute_proposal)
- *   payment     – the single money card  { ev }   (bill_redirect)
- *   caption     – centered micro-status  { text, csid }
- *   activity    – collapsed machinery    { labels }
- *   error       – inline alert           { text }
+ *   user        \u2013 user bubble            { text }
+ *   ai          \u2013 assistant bubble       { text, tone? }
+ *   order       \u2013 order-ready + chips    { ev }   (bill)
+ *   swap        \u2013 substitution + chips   { ev }   (substitute_proposal)
+ *   payment     \u2013 the single money card  { ev }   (bill_redirect)
+ *   caption     \u2013 centered micro-status  { text, csid }
+ *   activity    \u2013 collapsed machinery    { labels }
+ *   error       \u2013 inline alert           { text }
  */
 export function toViewItems(events, { busy }) {
   const items = []
@@ -81,7 +72,7 @@ export function toViewItems(events, { busy }) {
         items.push({
           kind: 'caption',
           id: `st-${ev.time}`,
-          text: humanStatus(ev.status),
+          text: _humanStatus(ev.status),
           csid: ev.checkout_session_id,
           payment: ev.payment,
         })

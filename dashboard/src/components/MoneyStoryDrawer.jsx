@@ -2,20 +2,13 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { merchantFetch } from '../api.js'
 import { ACTION_META, metaFor, deriveStages } from '../utils/actionMeta.js'
+import { RULE_LABELS } from '../utils/terminology.js'
 
 /**
  * MONEY STORY — why money moved / didn't move.
  * Composed client-side from existing endpoints:
  *   /audit_logs?checkout_session_id=  ·  /checkout_sessions/{id}  ·  /explain/{id}
  */
-
-const RULE_LABELS = {
-  spend_limit: 'Spend limit',
-  stock_check: 'Stock',
-  category_allowed: 'Category',
-  delegation_expiry: 'Delegation',
-  quantity_limit: 'Quantity',
-}
 
 function latestChecks(events = []) {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -107,9 +100,11 @@ export default function MoneyStoryDrawer({ sessionId, onClose }) {
                 </div>
                 <div className="ladder-note">
                   {captured
-                    ? 'Charged after all five deterministic checks passed.'
+                    ? 'Charged after all safety checks passed.'
                     : orderEvent
-                      ? `Order ${shortId(orderEvent.payload?.order_id)} opened at the gateway — waiting for your authorization. Nothing charged yet.`
+                      ? session?.payment?.payment_id
+                        ? `Order ${shortId(orderEvent.payload?.order_id)} opened at the gateway — payment authorized, awaiting capture.`
+                        : `Order ${shortId(orderEvent.payload?.order_id)} opened at the gateway — waiting for your authorization. Nothing charged yet.`
                       : 'No gateway order was created — nothing charged.'}
                 </div>
               </div>
@@ -117,27 +112,27 @@ export default function MoneyStoryDrawer({ sessionId, onClose }) {
           )}
 
           {/* policy checks */}
-          <SectionTitle>Deterministic checks</SectionTitle>
+          <SectionTitle>Why this was allowed</SectionTitle>
           {checks?.length ? (
             <div className="policy-grid">
               {checks.map(c => (
                 <div key={c.rule} className={`policy-row ${c.result}`}>
-                  <span className="pi">{c.result === 'pass' ? '✓' : c.result === 'fail' ? '✕' : '?'}</span>
-                  <span className="pn">{RULE_LABELS[c.rule] || c.rule}</span>
+                  <span className="pi">{c.result === 'pass' ? '\u2713' : c.result === 'fail' ? '\u2715' : '?'}</span>
+                  <span className="pn">{RULE_LABELS[c.rule] || c.rule.replace(/_/g, ' ')}</span>
                   <span className="pd">{c.detail}</span>
                 </div>
               ))}
             </div>
           ) : (
             <div className="kv" style={{ color: 'var(--muted)' }}>
-              No policy evaluation recorded for this state.
+              No safety checks recorded for this state.
             </div>
           )}
 
           {/* agent story */}
           {!!agentSteps.length && (
             <>
-              <SectionTitle>What the merchant agent did</SectionTitle>
+              <SectionTitle>How your agent handled this</SectionTitle>
               <ul className="story-list">
                 {agentSteps.slice(0, 9).map(e => {
                   const meta = metaFor(e.action)
@@ -153,7 +148,7 @@ export default function MoneyStoryDrawer({ sessionId, onClose }) {
           {/* proof */}
           {!!proofEvents.length && (
             <>
-              <SectionTitle>Gateway proof</SectionTitle>
+              <SectionTitle>Payment verification</SectionTitle>
               <div className="proof-list">
                 {proofEvents.map(e => {
                   const meta = metaFor(e.action)

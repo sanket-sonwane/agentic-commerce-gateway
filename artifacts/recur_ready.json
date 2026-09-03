@@ -1,0 +1,11 @@
+{
+  "csid": "cs_ff7da07f60",
+  "status": "requires_payment",
+  "order_id": null,
+  "customer_id": "cust_TSXU4eyNFDuW0t",
+  "key_id": "rzp_test_TVcLPCGGd4hAMY",
+  "save_card": true,
+  "amount": 72,
+  "amount_paise": null,
+  "awaiting_authorization": true
+}

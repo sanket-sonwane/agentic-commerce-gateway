@@ -297,5 +297,8 @@ def reconcile_session(db: Session, checkout_session_id: str) -> CompleteResponse
         )
     from merchant.payment import payment_service
 
-    outcome = payment_service.reconcile_pending(cs.razorpay_order_id or "")
+    outcome = payment_service.reconcile_pending(
+        cs.razorpay_order_id or "",
+        payment_id=cs.razorpay_payment_id,
+    )
     return _finalize_payment(db, cs, outcome)

@@ -148,11 +148,15 @@ def test_payment_decline_razorpay_called(client):
 
 
 def test_payment_pending(client):
+    # A payment_pending session that already has a payment object at the gateway
+    # (razorpay_payment_id set) reports "authorized" — money was initiated and is
+    # awaiting capture. Distinct from "pending" (no payment object yet).
     csid = make_checkout(client).json()["checkout_session"]["checkout_session_id"]
     r = complete(client, csid)
     assert r.status_code == 200, r.text
     with mutate() as db:
         cs = db.get(CheckoutSession, csid)
+        assert cs.razorpay_payment_id  # sim capture attached a payment id
         cs.status = "payment_pending"
         db.flush()
         from merchant.evidence import audit_service
@@ -162,10 +166,32 @@ def test_payment_pending(client):
         )
 
     p = _get(client, csid)
-    assert p["payment"]["status"] == "pending"
+    assert p["payment"]["status"] == "authorized"
     assert p["razorpay_called"] is True
     assert p["stopped_at"] == "razorpay"
     assert p["failure_stage"] == "razorpay"
+
+
+def test_payment_pending_no_payment_id(client):
+    # A payment_pending session with NO payment object yet (only an order) must be
+    # reported as "pending", never "authorized" — no money was initiated.
+    csid = make_checkout(client).json()["checkout_session"]["checkout_session_id"]
+    with mutate() as db:
+        cs = db.get(CheckoutSession, csid)
+        cs.status = "payment_pending"
+        cs.razorpay_payment_id = None
+        cs.razorpay_order_id = "order_pending"
+        db.flush()
+        from merchant.evidence import audit_service
+        audit_service.append_event(
+            db, actor="razorpay", action="payment_pending", checkout_session_id=csid,
+            decision="pending", reasoning_summary="Payment unresolved; reconciliation required",
+        )
+
+    p = _get(client, csid)
+    assert p["razorpay_called"] is True
+    assert p["payment"]["status"] == "pending"
+    assert p["payment"]["payment_id"] is None
 
 
 # ---------------------------------------------------------------- 6. Razorpay not called

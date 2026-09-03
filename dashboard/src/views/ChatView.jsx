@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { SendHorizontal, ArrowDown, Soup, Croissant, ShoppingBasket, Eye } from 'lucide-react'
-import { streamSSE, registerUserKey } from '../api.js'
+import { streamSSE, registerUserKey, merchantFetch } from '../api.js'
 import { toViewItems, orderTitle } from '../utils/events.js'
 import { mapPaymentState } from '../utils/paymentState.js'
 import MessageBubble from '../components/MessageBubble.jsx'
@@ -10,12 +10,12 @@ import PaymentCard from '../components/PaymentCard.jsx'
 import MoneyStoryDrawer from '../components/MoneyStoryDrawer.jsx'
 
 const SUGGESTIONS = [
-  { icon: Soup, text: 'Buy ingredients for chicken biryani for four people under â‚¹800' },
-  { icon: Croissant, text: 'Get milk, bread and eggs for under â‚¹300' },
-  { icon: ShoppingBasket, text: 'Order pasta dinner ingredients under â‚¹600' },
+  { icon: Soup, text: 'Buy ingredients for chicken biryani for four people under \u20B9800' },
+  { icon: Croissant, text: 'Get milk, bread and eggs for under \u20B9300' },
+  { icon: ShoppingBasket, text: 'Order pasta dinner ingredients under \u20B9600' },
 ]
 
-export default function ChatView({ onRequestOps }) {
+export default function ChatView({ onRequestOps, onSessionObserved }) {
   const [events, setEvents] = useState([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState(null)
@@ -45,8 +45,24 @@ export default function ChatView({ onRequestOps }) {
   function applyEvent(e) {
     e.time = Date.now()
     setEvents(prev => [...prev, e])
-    if (e.type === 'bill') setPendingBill(e)
-    else if (e.type === 'substitute_proposal') setPendingSub(e)
+    if (e.type === 'bill') {
+      setPendingBill(e)
+      onSessionObserved?.({
+        checkout_session_id: e.checkout_session_id,
+        amount: e.totals?.total,
+        description: orderTitle(e.line_items || []),
+        updated_at: Date.now(),
+      })
+    } else if (e.type === 'status') {
+      onSessionObserved?.({
+        checkout_session_id: e.checkout_session_id,
+        status: e.status,
+        payment: e.payment,
+        updated_at: Date.now(),
+      })
+    } else if (e.type === 'substitute_proposal') {
+      setPendingSub(e)
+    }
   }
 
   async function send(text) {
@@ -94,7 +110,7 @@ async function decide(approved) {
         setEvents(prev => [...prev, {
           type: 'message',
           role: 'system',
-          content: `⚠️ I couldn't sign your approval on this device (${err.message}). Nothing was charged — please try again.`,
+          content: `⚠️ I couldn't sign your approval on this device (${err.message}). Nothing was sent — please try again.`,
           time: Date.now(),
         }])
         return
@@ -131,6 +147,13 @@ async function decide(approved) {
   function paymentPaid(body) {
     const s = body.checkout_session
     const state = mapPaymentState(s)
+    onSessionObserved?.({
+      checkout_session_id: s.checkout_session_id,
+      status: s.status,
+      amount: s.totals?.total,
+      description: orderTitle(s.line_items || []),
+      updated_at: Date.now(),
+    })
     setEvents(prev => [
       ...prev,
       { type: 'status', checkout_session_id: s.checkout_session_id, status: s.status, payment: s.payment, time: Date.now() },
@@ -161,8 +184,8 @@ async function decide(approved) {
             <>
               <div className="hero">
                 <div className="hero-mark"><ShoppingBasket size={26} /></div>
-                <h2>Groceries, ordered by AI.</h2>
-                <p>Just say what you need â€” your agent shops, you approve the bill.</p>
+                <h2>Shop with your AI agent.</h2>
+                <p>Your agent finds what you need. You approve before money moves.</p>
                 <div className="sugg-grid">
                   {SUGGESTIONS.map(s => (
                     <button key={s.text} className="sugg-card" onClick={() => send(s.text)}>
@@ -172,7 +195,7 @@ async function decide(approved) {
                   ))}
                 </div>
               </div>
-              <div className="trust-line">Every order needs your approval Â· money only moves after you pay</div>
+              <div className="trust-line">Every order needs your approval · Money only moves after you pay</div>
             </>
           ) : null}
 
@@ -202,13 +225,13 @@ async function decide(approved) {
       )}
 
       <div className="input-dock-wrap">
-        {blockedReason && !busy && <div className="blocked-hint">â†‘ {blockedReason}</div>}
+        {blockedReason && !busy && <div className="blocked-hint">↑ {blockedReason}</div>}
         <div className="input-dock">
           <textarea
             ref={taRef}
             rows={1}
             value={input}
-            placeholder={blockedReason ? blockedReason + 'â€¦' : 'What would you like to order?'}
+            placeholder={blockedReason ? blockedReason + '\u2026' : 'What would you like to order?'}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -254,7 +277,7 @@ function ViewItem({ item, busy, onDecide, onChoose, onRequestOps, onWhy, onPaid 
     case 'caption':
       return <Caption item={item} onRequestOps={onRequestOps} onWhy={onWhy} />
     case 'error':
-      return <div className="alert-line anim-in">âš  {item.text}</div>
+      return <div className="alert-line anim-in">⚠ {item.text}</div>
     default:
       return null
   }
@@ -262,10 +285,32 @@ function ViewItem({ item, busy, onDecide, onChoose, onRequestOps, onWhy, onPaid 
 
 /* ---------------------------------------------- order-ready (conversational bill) */
 
-function OrderReady({ item, busy, onDecide, onRequestOps }) {
+function OrderReady({ item, busy, onDecide, onRequestOps, onWhy }) {
   const { ev, resolved } = item
   const items = ev.line_items || []
   const t = ev.totals || {}
+  const [safety, setSafety] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    if (!ev.checkout_session_id) return
+    merchantFetch(`/consumer/transactions/${ev.checkout_session_id}/provenance`)
+      .then(r => {
+        if (!alive || !r.ok || !r.body) return
+        const byName = {}
+        for (const c of r.body.checks || []) byName[c.name] = c.status
+        setSafety({
+          spendPass: byName['Spend limit'] === 'pass',
+          stockPass: byName['Stock'] === 'pass',
+          authVerified: !!r.body.authorization?.verified,
+        })
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [ev.checkout_session_id])
+
+  const gated = ok => (ok ? 'pass' : safety ? 'fail' : 'pending')
+
   return (
     <div className="msg-row ai">
       <div className="avatar"><Basket /></div>
@@ -275,15 +320,20 @@ function OrderReady({ item, busy, onDecide, onRequestOps }) {
           <ul className="items">
             {items.map(li => (
               <li key={li.pack_id}>
-                <span><b>{li.name}</b>{li.quantity > 1 ? ` Ã—${li.quantity}` : ''}</span>
-                <span>â‚¹{li.unit_price * li.quantity}</span>
+                <span><b>{li.name}</b>{li.quantity > 1 ? ` ×${li.quantity}` : ''}</span>
+                <span>₹{li.unit_price * li.quantity}</span>
               </li>
             ))}
           </ul>
           {!!t.shipping && (
-            <div className="items"><li style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}><span>Delivery</span><span>â‚¹{t.shipping}</span></li></div>
+            <div className="items"><li style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}><span>Delivery</span><span>₹{t.shipping}</span></li></div>
           )}
-          <div className="total-line"><span>Total</span><span>â‚¹{t.total}</span></div>
+          <div className="total-line"><span>Total</span><span>₹{t.total}</span></div>
+          <div className="safety-summary">
+            <span className={`safety-item ${gated(safety?.spendPass)}`}>Within your spending limit</span>
+            <span className={`safety-item ${gated(safety?.stockPass)}`}>Items in stock</span>
+            <span className={`safety-item ${gated(safety?.authVerified)}`}>Your agent is authorized</span>
+          </div>
           <div className="why-row">
             <button className="why-link" onClick={() => onWhy?.(ev.checkout_session_id)}>
               <Eye size={12} /> Why this total?
@@ -294,14 +344,14 @@ function OrderReady({ item, busy, onDecide, onRequestOps }) {
           </div>
           <QuickReplyChips
             choices={[
-              { value: 'approved', label: `âœ“ Place order Â· â‚¹${t.total}`, tone: 'primary', onClick: () => onDecide(true), pickedLabel: 'âœ“ Ordered' },
+              { value: 'approved', label: `\u2713 Place order \u00B7 \u20B9${t.total}`, tone: 'primary', onClick: () => onDecide(true), pickedLabel: '\u2713 Ordered' },
               { value: 'cancelled', label: 'Cancel', tone: 'danger', onClick: () => onDecide(false), pickedLabel: 'Cancelled' },
             ]}
             disabled={busy}
             resolved={resolved}
           />
         </div>
-        <div className="msg-meta">{orderTitle(items)} Â· needs your approval</div>
+        <div className="msg-meta">{orderTitle(items)} · needs your approval</div>
       </div>
     </div>
   )
@@ -324,14 +374,14 @@ function SwapOffer({ item, busy, onChoose }) {
           </p>
           <div className="swap-line">
             <span className="swap-old">{orig.pack_id?.replace('pack_', '')}</span>
-            <span className="swap-arrow">â†’</span>
-            <b>{prop.name} {prop.size}{prop.unit} Ã—{prop.quantity}</b>
-            <span>â‚¹{prop.line_total ?? prop.price}</span>
-            {save > 0 && <span className="save-badge">save â‚¹{save}</span>}
+            <span className="swap-arrow">→</span>
+            <b>{prop.name} {prop.size}{prop.unit} ×{prop.quantity}</b>
+            <span>₹{prop.line_total ?? prop.price}</span>
+            {save > 0 && <span className="save-badge">save ₹{save}</span>}
           </div>
           <QuickReplyChips
             choices={[
-              { value: 'chosen', label: 'âœ“ Take it', tone: 'primary', onClick: () => onChoose(0), pickedLabel: 'âœ“ Taken' },
+              { value: 'chosen', label: '\u2713 Take it', tone: 'primary', onClick: () => onChoose(0), pickedLabel: '\u2713 Taken' },
               { value: 'other', label: 'Other options', onClick: () => onChoose('other'), pickedLabel: 'Skipped' },
               { value: 'cancelled', label: 'Cancel', tone: 'danger', onClick: () => onChoose('cancel'), pickedLabel: 'Cancelled' },
             ]}
@@ -349,23 +399,26 @@ function SwapOffer({ item, busy, onChoose }) {
 function Caption({ item, onRequestOps, onWhy }) {
   const { text, csid, payment } = item
   const explainable = /couldn|pending|cancelled/i.test(text)
-  const paid = /paid/i.test(text)
+  const paid = /paid|completed/i.test(text)
+  const failed = /couldn|stopped|cancelled|nothing/i.test(text)
   return (
-    <div className={`caption ${paid ? 'gold-line' : ''}`}>
+    <div className={`caption ${paid ? 'gold-line' : ''} ${failed ? 'red-line' : ''}`}>
       {text}
       {csid && paid && (
         <>
-          {' Â· '}
-          <button className="why-link" onClick={() => onRequestOps?.(csid)}>view trail</button>
+          {' \u00B7 '}
+          <button className="why-link" onClick={() => onWhy?.(csid)}>view proof</button>
+          {' \u00B7 '}
+          <button className="why-link" onClick={() => onRequestOps?.(csid)}>full trail</button>
         </>
       )}
       {csid && explainable && (
         <>
-          {' Â· '}
+          {' \u00B7 '}
           <button className="why-link" onClick={() => onWhy?.(csid)}>what happened?</button>
         </>
       )}
-      {payment?.saved_card && <> Â· ðŸ’³ {payment.saved_card.network} â€¢â€¢â€¢â€¢{payment.saved_card.last4}</>}
+      {payment?.saved_card && <> · 💳 {payment.saved_card.network} ••••{payment.saved_card.last4}</>}
     </div>
   )
 }

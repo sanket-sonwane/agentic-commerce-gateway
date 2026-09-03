@@ -4,14 +4,8 @@ import { adminFetch, adminLogin, adminLogout, merchantFetch } from '../api.js'
 import PaymentCard from '../components/PaymentCard.jsx'
 import AuditTimeline from '../components/AuditTimeline.jsx'
 import MerchantAgentSection, { AgentTraceDetail } from '../components/MerchantAgentTrace.jsx'
-
-const RULE_LABELS = {
-  spend_limit: 'Spend limit',
-  stock_check: 'Stock',
-  category_allowed: 'Category',
-  delegation_expiry: 'Delegation',
-  quantity_limit: 'Quantity',
-}
+import { RULE_LABELS } from '../utils/terminology.js'
+import { orderTitle } from '../utils/events.js'
 
 const STATUS_VERB = {
   completed: 'Paid', requires_payment: 'Awaiting payment', payment_pending: 'Pending',
@@ -19,7 +13,7 @@ const STATUS_VERB = {
   requires_confirmation: 'Needs confirmation',
 }
 
-export default function OpsView({ focusSessionId = null }) {
+export default function OpsView({ focusSessionId = null, onSessionObserved }) {
   const [sessions, setSessions] = useState([])
   const [selected, setSelected] = useState(focusSessionId)
   const [opsStatus, setOpsStatus] = useState(null)
@@ -178,7 +172,7 @@ export default function OpsView({ focusSessionId = null }) {
       {tab === 'agent' && agentSessionId ? (
         <AgentTraceDetail agentSessionId={agentSessionId} />
       ) : selected ? (
-        <SessionDetail sessionId={selected} />
+        <SessionDetail sessionId={selected} onSessionObserved={onSessionObserved} />
       ) : (
         <div className="empty-state">
           Select a transaction to inspect its full audit trail.
@@ -190,7 +184,7 @@ export default function OpsView({ focusSessionId = null }) {
 
 /* ------------------------------------------------- session detail */
 
-function SessionDetail({ sessionId }) {
+function SessionDetail({ sessionId, onSessionObserved }) {
   const [session, setSession] = useState(null)
   const [events, setEvents] = useState([])
   const [explanation, setExplanation] = useState(null)
@@ -239,7 +233,7 @@ function SessionDetail({ sessionId }) {
 
       <div className="ops-section-title">Plain answer</div>
       <div className="explain-box">
-        <div className="headline">{explanation?.explanation || '…'}</div>
+        <div className="headline">{explanation?.explanation || '\u2026'}</div>
         {!!explanation?.timeline_facts?.length && (
           <ul style={{ margin: '6px 0 0', paddingLeft: 17 }}>
             {explanation.timeline_facts.map((f, i) => <li key={i}>{f}</li>)}
@@ -247,7 +241,7 @@ function SessionDetail({ sessionId }) {
         )}
       </div>
 
-      <div className="ops-section-title"><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Policy checks</div>
+      <div className="ops-section-title"><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Safety checks</div>
       {latestGating ? (
         <div className="policy-grid">
           {(latestGating.payload?.checks || []).map(c => (
@@ -259,11 +253,11 @@ function SessionDetail({ sessionId }) {
           ))}
         </div>
       ) : (
-        <div className="kv muted">No policy evaluation yet.</div>
+        <div className="kv muted">No safety checks recorded yet.</div>
       )}
 
       <div className="ops-section-title"><CreditCard size={11} style={{ verticalAlign: -1 }} /> Payment</div>
-      <div className="kv"><b>Razorpay invoked</b> <span className={razorpayCalled ? 'intact-yes' : 'intact-no'}>{razorpayCalled ? 'YES' : 'NO'}</span></div>
+      <div className="kv"><b>Payment sent</b> <span className={razorpayCalled ? 'intact-yes' : 'intact-no'}>{razorpayCalled ? 'Yes' : 'No'}</span></div>
       {session?.payment?.saved_card && (
         <div className="kv"><b>saved card</b> {session.payment.saved_card.network} ••••{session.payment.saved_card.last4}</div>
       )}
@@ -278,6 +272,17 @@ function SessionDetail({ sessionId }) {
               save_card: !!session.payment.save_card,
               amount: session.totals?.total ?? 0,
               amount_paise: (session.totals?.total ?? 0) * 100,
+            }}
+            onPaid={(body) => {
+              const s = body.checkout_session
+              onSessionObserved?.({
+                checkout_session_id: s.checkout_session_id,
+                status: s.status,
+                payment: s.payment,
+                amount: s.totals?.total,
+                description: orderTitle(s.line_items || []),
+                updated_at: Date.now(),
+              })
             }}
           />
         </div>
@@ -301,7 +306,7 @@ function ProvenancePanel({ provenance }) {
   return (
     <>
       <div className="ops-section-title">
-        <ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Signed Authorization &amp; Proof
+        <ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Authorization &amp; Proof
         <span style={{ marginLeft: 'auto', fontSize: 10 }}>
           {provenance.provenance_available
             ? <span className={passCount === total && total > 0 ? 'intact-yes' : 'intact-no'}>

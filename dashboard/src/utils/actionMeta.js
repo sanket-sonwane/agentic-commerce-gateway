@@ -3,9 +3,12 @@
  * Used by AuditTimeline v2 and the Money Story drawer.
  *
  * kind: 'money' | 'agent' | 'system' | 'buyer'
+ *
+ * PRINCIPLE: Titles use user-facing language. Technical detail stays in chips.
  */
+import { RULE_LABELS } from './terminology.js'
 
-const rupees = n => `₹${n}`
+const rupees = n => `\u20B9${n}`
 
 export const ACTION_META = {
   // ---------- buyer / protocol ----------
@@ -18,32 +21,32 @@ export const ACTION_META = {
 
   // ---------- deterministic control plane ----------
   gating_evaluated: {
-    title: 'Policy engine',
+    title: 'Safety checks',
     kind: 'money',
-    chips: p => (p?.checks || []).map(c => ({ label: `${c.rule}: ${c.result}`, tone: c.result })),
+    chips: p => (p?.checks || []).map(c => ({ label: `${RULE_LABELS[c.rule] || c.rule}: ${c.result}`, tone: c.result })),
   },
   final_validation: {
-    title: 'Final validation (pre-money)',
+    title: 'Final safety check',
     kind: 'money',
-    chips: p => (p?.checks || []).map(c => ({ label: `${c.rule}: ${c.result}`, tone: c.result })),
+    chips: p => (p?.checks || []).map(c => ({ label: `${RULE_LABELS[c.rule] || c.rule}: ${c.result}`, tone: c.result })),
   },
   reservation_created: { title: 'Stock reserved', kind: 'system', chips: p => (p?.expires_at ? [{ label: `holds until ${String(p.expires_at).slice(11, 19)}` }] : []) },
   checkout_created: { title: 'Checkout opened', kind: 'system', chips: p => (p ? [] : []) },
   checkout_updated: { title: 'Basket updated', kind: 'system' },
-  checkout_declined: { title: 'Order declined', kind: 'money' },
+  checkout_declined: { title: 'Order stopped', kind: 'money' },
   checkout_completed: { title: 'Order completed', kind: 'money' },
-  checkout_cancelled: { title: 'Order cancelled — stock released', kind: 'system' },
+  checkout_cancelled: { title: 'Order cancelled \u2014 stock released', kind: 'system' },
   confirmation_accepted: { title: 'Buyer accepted terms', kind: 'buyer' },
   confirmation_rejected: { title: 'Buyer rejected terms', kind: 'buyer' },
-  inventory_adjusted: { title: 'Operator changed stock', kind: 'system', chips: p => (p && 'old' in p ? [{ label: `${p.old} → ${p.new}` }] : []) },
+  inventory_adjusted: { title: 'Operator changed stock', kind: 'system', chips: p => (p && 'old' in p ? [{ label: `${p.old} \u2192 ${p.new}` }] : []) },
   demo_reset: { title: 'Demo reset', kind: 'system' },
   demo_reset_requested: { title: 'Demo reset requested', kind: 'system', chips: p => (p?.audit_events_before != null ? [{ label: `audit events before: ${p.audit_events_before}` }] : []) },
   demo_reset_completed: { title: 'Demo reset completed', kind: 'system', chips: p => (p?.audit_history ? [{ label: `audit ${p.audit_history}` }] : []) },
 
   // ---------- razorpay ----------
-  razorpay_order_creation: { title: 'Creating gateway order', kind: 'money' },
+  razorpay_order_creation: { title: 'Sending payment to Razorpay', kind: 'money' },
   razorpay_order_created: {
-    title: 'Razorpay order created',
+    title: 'Payment sent to Razorpay',
     kind: 'money',
     chips: p => {
       const out = []
@@ -53,12 +56,12 @@ export const ACTION_META = {
     },
   },
   razorpay_token_charge: { title: 'Charging saved card', kind: 'money' },
-  payment_success: { title: 'Payment captured', kind: 'money' },
-  payment_failure: { title: 'Gateway declined', kind: 'money' },
-  payment_pending: { title: 'Payment unresolved', kind: 'money' },
-  awaiting_authorization: { title: 'Awaiting card authorization', kind: 'money' },
-  payment_token_saved: { title: 'Card token saved', kind: 'money' },
-  token_needs_reauth: { title: 'Token needs re-authorization', kind: 'money' },
+  payment_success: { title: 'Payment confirmed', kind: 'money' },
+  payment_failure: { title: 'Payment declined', kind: 'money' },
+  payment_pending: { title: 'Payment pending', kind: 'money' },
+  awaiting_authorization: { title: 'Waiting for card authorization', kind: 'money' },
+  payment_token_saved: { title: 'Card saved for future orders', kind: 'money' },
+  token_needs_reauth: { title: 'Card needs re-authorization', kind: 'money' },
 
   // ---------- merchant agent ----------
   agent_search_catalog: { title: 'Searched catalog', kind: 'agent' },
@@ -66,7 +69,7 @@ export const ACTION_META = {
   agent_check_inventory: { title: 'Checked live stock', kind: 'agent' },
   agent_get_current_price: { title: 'Checked price', kind: 'agent' },
   agent_find_alternative: { title: 'Looked for alternatives', kind: 'agent' },
-  agent_run_gating: { title: 'Previewed policy', kind: 'agent' },
+  agent_run_gating: { title: 'Previewed safety checks', kind: 'agent' },
   agent_create_checkout: { title: 'Created checkout', kind: 'agent' },
   agent_update_checkout: { title: 'Updated checkout', kind: 'agent' },
   agent_get_checkout: { title: 'Read checkout state', kind: 'agent' },
@@ -75,7 +78,7 @@ export const ACTION_META = {
   agent_ready_for_completion: { title: 'Handed basket to buyer', kind: 'agent' },
   agent_request_completion: { title: 'Requested gated completion', kind: 'money' },
   agent_outcome: { title: 'Agent outcome', kind: 'agent', chips: p => (p?.reason_code ? [{ label: p.reason_code, mono: true }] : []) },
-  agent_reasoning_only: { title: 'Thinking…', kind: 'agent' },
+  agent_reasoning_only: { title: 'Thinking\u2026', kind: 'agent' },
   agent_decline_hold: { title: 'Decline held for confirmation', kind: 'system' },
   agent_mode_hold: { title: 'Mode mismatch corrected', kind: 'system' },
   agent_unpaid_completed_hold: { title: "Unpaid 'completed' claim blocked", kind: 'system' },
@@ -110,7 +113,7 @@ export function deriveStages(events = []) {
   const gateApproved = events.some(
     e => (e.action === 'gating_evaluated' || e.action === 'final_validation') && e.decision === 'approved',
   )
-  stages.push({ key: 'gated', label: 'Gated', done: gateApproved })
+  stages.push({ key: 'gated', label: 'Safety checked', done: gateApproved })
   const authed =
     has('razorpay_order_created') ||
     has('awaiting_authorization') ||
@@ -119,6 +122,6 @@ export function deriveStages(events = []) {
   stages.push({ key: 'authorized', label: 'Authorized', done: authed })
   const paid = has('payment_success')
   const failed = has('payment_failure') || has('checkout_declined')
-  stages.push({ key: 'outcome', label: paid ? 'Paid' : failed ? 'Declined' : 'Open', done: paid || failed, outcome: true })
+  stages.push({ key: 'outcome', label: paid ? 'Paid' : failed ? 'Stopped' : 'Open', done: paid || failed, outcome: true })
   return stages
 }

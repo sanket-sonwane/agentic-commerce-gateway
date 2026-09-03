@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, ShieldCheck, Lock } from 'lucide-react'
 import { merchantFetch } from '../api.js'
+import { PAYMENT_STATUS, PROOF_LABELS, PROOF_STATUS } from '../utils/terminology.js'
 
 /**
  * CONSUMER PROVENANCE — a plain-language view of how one purchase was
@@ -10,20 +11,6 @@ import { merchantFetch } from '../api.js'
  * /consumer/transactions/{id}/provenance). It does NO business logic, NO
  * cryptography, and NO policy decisions — it is presentation only.
  */
-
-const PAYMENT_TEXT = {
-  verified: 'Paid and verified at the gateway',
-  declined: 'Gateway declined the payment',
-  pending: 'Payment is pending reconciliation',
-  order_created: 'Gateway order created — nothing charged yet',
-  not_called: 'Razorpay was never called',
-}
-
-const PROOF_TEXT = {
-  verified: 'Verified',
-  failed: 'Failed',
-  unavailable: 'Not available',
-}
 
 export default function ConsumerProvenanceDrawer({ sessionId, onClose }) {
   const [state, setState] = useState(null)
@@ -120,8 +107,8 @@ export default function ConsumerProvenanceDrawer({ sessionId, onClose }) {
                 <span className="pi" style={{ color: 'var(--mint)' }}>₹</span>
                 <span className="pn">
                   {state.payment.razorpay_called
-                    ? PAYMENT_TEXT[state.payment.status] || 'Gateway interaction recorded'
-                    : 'Razorpay was never called'}
+                    ? PAYMENT_STATUS[state.payment.status] || 'Gateway interaction recorded'
+                    : 'Payment was not attempted'}
                 </span>
                 <span className="pd">
                   {state.payment.order_id ? `order ${state.payment.order_id}` : ''}
@@ -133,16 +120,16 @@ export default function ConsumerProvenanceDrawer({ sessionId, onClose }) {
               <SectionTitle>Proof</SectionTitle>
               <div className="proof-list">
                 {[
-                  ['Execution authorized', state.proof.execution_mandate],
-                  ['Policy decision', state.proof.policy_decision],
-                  ['Decision receipt', state.proof.decision_receipt],
-                  ['Provenance', state.proof.provenance],
-                  ['Audit chain', state.proof.audit_chain],
-                ].map(([label, st]) => (
-                  <div key={label} className={`policy-row ${st === 'verified' ? 'pass' : st === 'failed' ? 'fail' : ''}`}>
+                  ['execution_mandate', state.proof.execution_mandate],
+                  ['policy_decision', state.proof.policy_decision],
+                  ['decision_receipt', state.proof.decision_receipt],
+                  ['provenance', state.proof.provenance],
+                  ['audit_chain', state.proof.audit_chain],
+                ].map(([field, st]) => (
+                  <div key={field} className={`policy-row ${st === 'verified' ? 'pass' : st === 'failed' ? 'fail' : ''}`}>
                     <span className="pi"><ShieldCheck size={12} /></span>
-                    <span className="pn">{label}</span>
-                    <span className="pd">{PROOF_TEXT[st] || st}</span>
+                    <span className="pn">{PROOF_LABELS[field] || field}</span>
+                    <span className="pd">{PROOF_STATUS[st] || st}</span>
                   </div>
                 ))}
               </div>
