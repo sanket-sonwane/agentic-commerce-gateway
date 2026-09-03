@@ -26,13 +26,18 @@ production ACP compliance.
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/.well-known/merchant` | Read-only merchant capability manifest |
 | POST | `/discover` | Natural-language query → structured basket proposal |
+| GET | `/catalog/products/{product_id}` | Authoritative product read with explicit commerce semantics |
+| GET | `/catalog/packs/{pack_id}` | Authoritative pack read with explicit commerce semantics |
 | POST | `/checkout_sessions` | Create session; runs gating; reserves stock |
 | PUT | `/checkout_sessions/{id}` | Replace line items; revalidates everything |
 | GET | `/checkout_sessions/{id}` | Authoritative current session state |
 | POST | `/checkout_sessions/{id}/complete` | Final revalidation ladder → payment |
 | POST | `/checkout_sessions/{id}/confirm` | Accept/reject changed terms (version-matched) |
 | POST | `/checkout_sessions/{id}/cancel` | Idempotent cancel; releases reservation |
+| GET | `/orders` | List the requesting buyer's orders (ownership-scoped) |
+| GET | `/orders/{order_id}` | Read an order + fulfillment state |
 | GET | `/audit_logs?checkout_session_id=` | Append-only audit events |
 | GET | `/audit_logs/verify` | Hash-chain integrity verification |
 | GET | `/explain/{id}` | Human-readable explanation from audit facts |
@@ -40,6 +45,60 @@ production ACP compliance.
 | GET | `/agent_sessions/{id}` | Agent session view: status, pending proposal, outcome |
 | POST | `/agent_sessions/{id}/decision` | Buyer `accept`\|`reject` of a structured proposal; agent loop resumes |
 | GET | `/agent_sessions/{id}/trace` | Reconstructable agent decision trace (audit-backed) |
+
+### Merchant capability manifest
+
+`GET /.well-known/merchant` returns a read-only projection of the merchant's
+public capabilities. It is derived from the actual implementation (see
+`merchant/domain/manifest.py`) so the advertised capabilities cannot drift from
+reality. The manifest exposes merchant identity, protocol name/version,
+currency, supported commerce categories, the capability list, public protocol
+endpoint references, payment + fulfillment capabilities, and verification
+public-key metadata. It NEVER contains secrets (no private keys, no Razorpay
+keys, no tokens). Schema: [`schemas/merchant_manifest.json`](./schemas/merchant_manifest.json).
+
+### Public catalog + commerce semantics
+
+The catalog endpoints return explicit, machine-readable commerce semantics so
+an unknown buyer does not have to infer commercial meaning from strings:
+
+- `pack_size` (numeric, e.g. `500`), `unit` (`ml`/`l`/`g`/`kg`/`pcs`)
+- `quantity` (count for the sale basis) and `sale_basis` (`per_pack`)
+- `unit_price` (authoritative INR per pack) + `price_basis` (`per_pack`)
+- `currency` (`INR`), `stock_actual`/`reserved`/`available`/`availability`
+- `variant_id` — the pack is the variant; sibling packs of a product differ only
+  by `pack_id`/`size`/`unit`/`price`.
+
+Schemas: [`schemas/catalog_product.json`](./schemas/catalog_product.json),
+[`schemas/catalog_pack.json`](./schemas/catalog_pack.json).
+
+### Orders + fulfillment
+
+A **Checkout Session** is the payment/session object; the **Order** is the
+long-lived commercial object created exactly once when a checkout payment
+verifies successfully. Orders are read by the buyer over the public protocol
+and never require the dashboard.
+
+- `POST /checkout_sessions/{id}/complete` (on success) creates the order
+  `order_status=placed`, `fulfillment_status=pending`, bound to the
+  `checkout_session_id`, `razorpay_payment_id`, `execution_mandate_id`, and
+  `decision_receipt_id`. Replaying a completed session never double-creates.
+- `GET /orders?buyer_agent_id=&delegation_token=` — list the requesting
+  buyer's orders; ownership is scoped to buyer **and** delegation token, so a
+  caller cannot read another buyer's orders by passing an arbitrary id.
+- `GET /orders/{order_id}?buyer_agent_id=&delegation_token=` — authoritative
+  order incl. current `fulfillment_status`, `fulfillment_method`,
+  `destination`, `tracking_reference`, `estimated_delivery`, and the amount
+  actually authorized (paise + whole rupees) with payment provenance.
+- Fulfillment advances through a deterministic state machine only via an
+  admin-guarded operator endpoint (`POST /admin/orders/{id}/fulfillment`):
+  `pending -> placed -> packed -> shipped -> delivered`. Illegal or skipped
+  transitions are rejected (`INVALID_STATE_TRANSITION`), so the buyer always
+  reads a provenance-clean fulfillment picture.
+- The buyer never sees an order unless it was paid; declined/cancelled
+  checkouts materialize no order.
+
+Schema: [`schemas/order.json`](./schemas/order.json).
 
 ### Merchant Agent session (v0.2 extension)
 
@@ -110,7 +169,8 @@ Previous successful checks are never treated as sufficient (changing-world rule)
 `DELEGATION_SCOPE_VIOLATION`, `PRODUCT_NOT_FOUND`, `PACK_NOT_FOUND`,
 `STOCK_UNAVAILABLE`, `CATEGORY_BLOCKED`, `SPEND_LIMIT_EXCEEDED`,
 `CHECKOUT_NOT_FOUND`, `INVALID_STATE_TRANSITION`, `SESSION_EXPIRED`,
-`PRICE_CHANGED`, `CONFIRMATION_STALE`, `PAYMENT_FAILED`, `PAYMENT_PENDING`
+`PRICE_CHANGED`, `CONFIRMATION_STALE`, `PAYMENT_FAILED`, `PAYMENT_PENDING`,
+`PAYMENT_BLOCKED`, `PROVENANCE_NOT_FOUND`
 
 ## Identity model (prototype)
 
@@ -118,8 +178,16 @@ A delegation token (`dlg_…`) binds a `buyer_agent_id` to its spending scope.
 This is a prototype representation, not production authentication; production
 requires cryptographically verifiable credentials.
 
+Delegations can be **revoked** by the operator (`POST
+/admin/delegations/{id}/revoke`). Once revoked, `validate_delegation` fails
+closed with `UNAUTHORIZED_AGENT`, so the delegation can no longer create or
+complete new purchases. Existing terminal (completed) sessions remain protected
+by idempotent completion replay.
+
 ## Interoperability
 
 Any client implementing only this document can transact. See `buyer_b/client.py`
 for a deterministic reference client that completes purchases without any
-knowledge of merchant internals.
+knowledge of merchant internals, and `cert_unknown_buyer/client.py` for a
+machine-checkable certification client that validates the live merchant against
+its published capability manifest + JSON schemas (`/protocol/schemas/*.json`).
