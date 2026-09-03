@@ -151,6 +151,9 @@ def _apply_migrations(engine) -> None:  # noqa: ANN001
             ("razorpay_order_amount", "INTEGER NULL DEFAULT NULL"),
             ("verified_payment_amount_paise", "INTEGER NULL DEFAULT NULL"),
             ("execution_mandate_id", "VARCHAR NULL DEFAULT NULL"),
+            # Phase 7: fulfillment binding (delivery method + address).
+            ("fulfillment_method", "VARCHAR NULL DEFAULT ''"),
+            ("destination", "VARCHAR NULL DEFAULT '{}'"),
         ],
         "execution_mandates": [
             ("consumed_at", "DATETIME NULL DEFAULT NULL"),

@@ -269,3 +269,106 @@ def test_delegation_revocation_blocks_new_purchases(client, admin_headers):
 def test_delegation_revocation_requires_admin(client):
     r = client.post("/admin/delegations/dlg_buyerb_001/revoke")
     assert r.status_code == 401, r.text
+
+
+# ------------------------------------------------------------------ Phase 7
+# Fulfillment binding: buyer-declared delivery method + destination at checkout
+# must become part of the commercial agreement and carry through to the Order.
+
+
+DELIVERY_ADDR = {"name": "Ada Buyer", "line1": "1 MG Road", "city": "Blr", "pin": "560001", "phone": "9999999999"}
+
+
+def test_fulfillment_binding_carries_to_order(client):
+    # Create a checkout declaring delivery + an address.
+    resp = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}],
+              "fulfillment_method": "delivery", "destination": DELIVERY_ADDR},
+    )
+    assert resp.status_code == 201, resp.text
+    session = resp.json()["checkout_session"]
+    # The session exposes the declared terms.
+    assert session["fulfillment_method"] == "delivery"
+    assert session["destination"] == DELIVERY_ADDR
+
+    csid = session["checkout_session_id"]
+    r = _complete(client, csid, key="ff-delivery-1")
+    assert r.status_code == 200, r.text
+
+    # The resulting order carries the same fulfillment terms (bound agreement).
+    od = client.get(
+        f"/orders/{_order_id_for(client, csid)}",
+        params={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d"},
+    )
+    assert od.status_code == 200, od.text
+    o = od.json()
+    assert o["fulfillment_method"] == "delivery"
+    assert o["destination"] == DELIVERY_ADDR
+
+
+def test_fulfillment_method_defaults_to_none_when_not_declared(client):
+    resp = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}]},
+    )
+    assert resp.status_code == 201, resp.text
+    session = resp.json()["checkout_session"]
+    # Backward-compatible: no declared method -> empty/none, no address.
+    assert session["fulfillment_method"] in ("", None)
+    assert session["destination"] in ({}, None)
+
+
+def test_unsupported_fulfillment_method_rejected(client):
+    resp = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}],
+              "fulfillment_method": "drone"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_fulfillment_binding_survives_idempotent_replay(client):
+    # Create with delivery terms; verify the terms are preserved, and that a
+    # second create with the SAME idempotency key replays without duplicating.
+    key = "ff-idem"
+    payload = {"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+               "line_items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}],
+               "fulfillment_method": "pickup"}
+    r1 = client.post("/checkout_sessions", json=payload, headers={"Idempotency-Key": key})
+    r2 = client.post("/checkout_sessions", json=payload, headers={"Idempotency-Key": key})
+    assert r1.status_code == 201
+    assert r2.status_code == 200  # idempotent replay
+    assert r1.json()["checkout_session"]["checkout_session_id"] == \
+        r2.json()["checkout_session"]["checkout_session_id"]
+    assert r2.json()["checkout_session"]["fulfillment_method"] == "pickup"
+
+
+def test_pickup_method_also_binds(client):
+    resp = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_eggs_farm", "pack_id": "pack_eggs_12", "quantity": 1}],
+              "fulfillment_method": "pickup"},
+    )
+    assert resp.status_code == 201, resp.text
+    csid = resp.json()["checkout_session"]["checkout_session_id"]
+    r = _complete(client, csid, key="ff-pickup-1")
+    assert r.status_code == 200, r.text
+    od = client.get(
+        f"/orders/{_order_id_for(client, csid)}",
+        params={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d"},
+    )
+    assert od.json()["fulfillment_method"] == "pickup"
+
+
+def _order_id_for(client, checkout_session_id):
+    lst = client.get("/orders", params={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d"})
+    for o in lst.json()["orders"]:
+        if o["checkout_session_id"] == checkout_session_id:
+            return o["order_id"]
+    raise AssertionError(f"no order for {checkout_session_id}")

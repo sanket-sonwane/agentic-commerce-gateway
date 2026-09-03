@@ -76,6 +76,11 @@ class CheckoutSession(Base):
     verified_payment_amount_paise: Mapped[int | None] = mapped_column(Integer, nullable=True)
     execution_mandate_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    # Fulfillment binding (Phase 7): the buyer-declared delivery method + address
+    # captured at checkout. These are carried into the Order at payment completion
+    # so fulfillment terms are part of the commercial agreement, not added after.
+    fulfillment_method: Mapped[str] = mapped_column(String, default="")  # delivery | pickup | ""
+    destination: Mapped[str] = mapped_column(String, default="{}")  # JSON address block
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

@@ -211,6 +211,11 @@ class CreateCheckoutRequest(BaseModel):
     buyer_agent_id: str
     delegation_token: str
     line_items: list[LineItemIn] = Field(min_length=1)
+    # Fulfillment binding (Phase 7). Optional: the buyer may declare a delivery
+    # method + destination at checkout. The server validates the method and binds
+    # these terms into the Order so fulfillment is part of the agreement.
+    fulfillment_method: Optional[str] = None  # delivery | pickup
+    destination: Optional[dict[str, Any]] = None  # free-form address block
 
 
 class UpdateCheckoutRequest(BaseModel):
@@ -302,6 +307,8 @@ class CheckoutSessionOut(BaseModel):
     change: Optional[ChangeInfo] = None
     payment: dict[str, Any] = {}
     razorpay_order_id: Optional[str] = None
+    fulfillment_method: Optional[str] = None
+    destination: Optional[dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -398,7 +405,7 @@ class OrderOut(BaseModel):
     order_status: str
     fulfillment_status: str
     fulfillment_method: str | None = None
-    destination: str | None = None
+    destination: dict[str, Any] | None = None
     estimated_delivery: str | None = None
     tracking_reference: str | None = None
     payment: OrderPaymentRef

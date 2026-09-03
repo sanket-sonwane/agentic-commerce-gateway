@@ -92,6 +92,8 @@ def create_order_from_checkout(db: Session, cs: CheckoutSession) -> Order:
         execution_mandate_id=cs.execution_mandate_id,
         order_status="placed",
         fulfillment_status="pending",
+        fulfillment_method=cs.fulfillment_method or "",
+        destination=cs.destination or "{}",
     )
     db.add(order)
     db.flush()
@@ -194,6 +196,17 @@ def _order_line_items(raw: str) -> list[dict]:
     return json.loads(raw) if raw else []
 
 
+def _order_destination(raw: str | None) -> dict | None:
+    """Decode the stored JSON address block; None when empty/absent."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) and parsed else None
+
+
 def serialize_order(order: Order) -> dict:
     line_items = _order_line_items(order.line_items)
     # Normalize line items to the protocol shape (no ORM/internal leakage).
@@ -222,7 +235,7 @@ def serialize_order(order: Order) -> dict:
         "order_status": order.order_status,
         "fulfillment_status": order.fulfillment_status,
         "fulfillment_method": order.fulfillment_method or None,
-        "destination": order.destination or None,
+        "destination": _order_destination(order.destination),
         "estimated_delivery": order.estimated_delivery,
         "tracking_reference": order.tracking_reference,
         "payment": {

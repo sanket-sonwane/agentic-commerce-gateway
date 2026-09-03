@@ -96,6 +96,18 @@
       }
     },
     "razorpay_order_id": {"type": ["string", "null"]},
+    "fulfillment_method": {"type": ["string", "null"], "description": "delivery | pickup | null (Phase 7 binding)"},
+    "destination": {
+      "type": ["object", "null"],
+      "description": "Buyer-declared delivery address block captured at checkout",
+      "properties": {
+        "name": {"type": "string"},
+        "line1": {"type": "string"},
+        "city": {"type": "string"},
+        "pin": {"type": "string"},
+        "phone": {"type": "string"}
+      }
+    },
     "created_at": {"type": "string", "format": "date-time"},
     "updated_at": {"type": "string", "format": "date-time"}
   }

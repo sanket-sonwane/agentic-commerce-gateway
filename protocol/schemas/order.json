@@ -35,8 +35,18 @@
     },
     "order_status": {"const": "placed"},
     "fulfillment_status": {"enum": ["pending", "placed", "packed", "shipped", "delivered"]},
-    "fulfillment_method": {"type": ["string", "null"]},
-    "destination": {"type": ["string", "null"]},
+    "fulfillment_method": {"type": ["string", "null"], "description": "delivery | pickup | null"},
+    "destination": {
+      "type": ["object", "null"],
+      "description": "Buyer-declared delivery address block captured at checkout",
+      "properties": {
+        "name": {"type": "string"},
+        "line1": {"type": "string"},
+        "city": {"type": "string"},
+        "pin": {"type": "string"},
+        "phone": {"type": "string"}
+      }
+    },
     "estimated_delivery": {"type": ["string", "null"]},
     "tracking_reference": {"type": ["string", "null"]},
     "payment": {

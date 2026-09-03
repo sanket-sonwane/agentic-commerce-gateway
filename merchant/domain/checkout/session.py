@@ -112,6 +112,8 @@ def serialize_session(db: Session, cs: CheckoutSession) -> CheckoutSessionOut:
         reservation=reservation,
         payment=payment,
         razorpay_order_id=cs.razorpay_order_id,
+        fulfillment_method=cs.fulfillment_method or "",
+        destination=json.loads(cs.destination) if cs.destination else {},
         created_at=cs.created_at,
         updated_at=cs.updated_at,
     )

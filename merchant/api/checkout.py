@@ -37,6 +37,8 @@ def create_checkout(body: CreateCheckoutRequest, response: Response,
             delegation_token=body.delegation_token,
             line_items=[i.model_dump() for i in body.line_items],
             idempotency_key=idempotency_key,
+            fulfillment_method=body.fulfillment_method,
+            destination=body.destination,
         )
         out = CreateCheckoutResponse(checkout_session=checkout_service.serialize_session(db, cs))
         if not created:

@@ -98,7 +98,25 @@ and never require the dashboard.
 - The buyer never sees an order unless it was paid; declined/cancelled
   checkouts materialize no order.
 
-Schema: [`schemas/order.json`](./schemas/order.json).
+**Fulfillment binding (Phase 7).** The buyer may declare fulfillment terms when
+creating a checkout (`POST /checkout_sessions`): an optional `fulfillment_method`
+(`delivery` | `pickup`) and an optional free-form `destination` address block.
+The server validates the method (`INVALID_REQUEST` on anything else), persists
+the terms on the session, and carries them verbatim into the Order at payment
+completion — so fulfillment terms are part of the commercial agreement and
+cannot be silently changed between checkout and delivery. If fulfillment terms
+were ever to affect price/availability, the existing `PRICE_CHANGED` +
+version-matched `/confirm` machinery governs (no second authorization system).
+The buyer reads its fulfillment state entirely via `GET /orders/{id}`.
+
+**Payment boundary (Phase 9).** Public merchant protocol responses speak in
+merchant/payment concepts. The provider-specific identifiers live inside the
+nested `payment` block (`{provider, driver, order_id, payment_id}`) rather than
+as top-level contract fields; they are Razorpay-test-mode-specific and are not
+part of the abstract merchant commerce contract.
+
+Schema: [`schemas/order.json`](./schemas/order.json),
+[`schemas/checkout_session.json`](./schemas/checkout_session.json).
 
 ### Merchant Agent session (v0.2 extension)
 

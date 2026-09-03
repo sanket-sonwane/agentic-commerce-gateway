@@ -15,6 +15,22 @@ from merchant.evidence import audit_service
 from merchant.persistence.models.entities import CheckoutSession
 
 
+def _validate_fulfillment(method: str | None) -> str:
+    """Validate the buyer-declared fulfillment method ("" if unspecified)."""
+    if not method:
+        return ""
+    if method not in ("delivery", "pickup"):
+        from merchant.persistence.models.dto import ErrorCode, ProtocolError
+
+        raise ProtocolError(
+            ErrorCode.INVALID_REQUEST,
+            f"Unsupported fulfillment_method '{method}'; expected 'delivery' or 'pickup'",
+            http_status=400,
+            details={"fulfillment_method": method, "supported": ["delivery", "pickup"]},
+        )
+    return method
+
+
 def create_checkout(
     db: Session,
     *,
@@ -22,6 +38,8 @@ def create_checkout(
     delegation_token: str,
     line_items: list[dict],
     idempotency_key: str | None = None,
+    fulfillment_method: str | None = None,
+    destination: dict | None = None,
 ) -> tuple[CheckoutSession, bool]:
     """Returns (session, created_bool). Replays return the existing session."""
     replay = _idempotent_replay(db, idempotency_key)
@@ -31,6 +49,7 @@ def create_checkout(
             return existing, False
 
     delegation = validate_delegation(db, buyer_agent_id, delegation_token)
+    method = _validate_fulfillment(fulfillment_method)
 
     # Merge duplicate lines targeting the same pack.
     merged: dict[tuple[str, str], int] = {}
@@ -55,6 +74,8 @@ def create_checkout(
         totals=json.dumps(totals),
         gating_result=gating.model_dump_json(),
         idempotency_key=idempotency_key,
+        fulfillment_method=method,
+        destination=json.dumps(destination or {}),
     )
     db.add(cs)
     db.flush()
