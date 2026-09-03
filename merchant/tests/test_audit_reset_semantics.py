@@ -59,7 +59,7 @@ def test_reset_is_audited_with_request_and_completion(client, admin_headers):
     assert body["audit_history"] == "preserved"
     assert body["audit_events_preserved"] is True
     assert body["audit_events_before"] == prior
-    assert set(body["deleted"]) == {"reservations", "idempotency_keys", "checkout_sessions", "delegations"}
+    assert set(body["deleted"]) == {"orders", "reservations", "idempotency_keys", "checkout_sessions", "delegations"}
 
     events = {e["action"]: e for e in client.get("/audit_logs").json()["events"]}
     req = events["demo_reset_requested"]

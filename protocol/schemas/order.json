@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "order.json",
+  "title": "Order",
+  "description": "Long-lived authoritative merchant order created when a checkout payment completes (GET /orders/{order_id})",
+  "type": "object",
+  "required": [
+    "order_id", "checkout_session_id", "buyer_agent_id", "merchant_id",
+    "merchant", "currency", "authorized_amount_paise", "line_items",
+    "order_status", "fulfillment_status", "payment", "created_at", "updated_at"
+  ],
+  "properties": {
+    "order_id": {"type": "string", "pattern": "^ord_"},
+    "checkout_session_id": {"type": "string", "pattern": "^cs_"},
+    "buyer_agent_id": {"type": "string"},
+    "merchant_id": {"type": "string"},
+    "merchant": {"type": "string"},
+    "currency": {"const": "INR"},
+    "authorized_amount_paise": {"type": "integer", "description": "Authoritative amount paid in paise (C-1 bound)"},
+    "amount": {"type": ["number", "null"], "description": "Authoritative amount in whole rupees"},
+    "line_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["product_id", "pack_id", "name", "quantity", "unit_price"],
+        "properties": {
+          "product_id": {"type": "string"},
+          "pack_id": {"type": "string"},
+          "name": {"type": "string"},
+          "category": {"type": "string"},
+          "quantity": {"type": "integer", "minimum": 1},
+          "unit_price": {"type": "integer", "description": "Authoritative INR price per unit"}
+        }
+      }
+    },
+    "order_status": {"const": "placed"},
+    "fulfillment_status": {"enum": ["pending", "placed", "packed", "shipped", "delivered"]},
+    "fulfillment_method": {"type": ["string", "null"]},
+    "destination": {"type": ["string", "null"]},
+    "estimated_delivery": {"type": ["string", "null"]},
+    "tracking_reference": {"type": ["string", "null"]},
+    "payment": {
+      "type": "object",
+      "required": ["provider"],
+      "properties": {
+        "provider": {"type": "string"},
+        "driver": {"type": ["string", "null"]},
+        "order_id": {"type": ["string", "null"]},
+        "payment_id": {"type": ["string", "null"]}
+      }
+    },
+    "execution_mandate_id": {"type": ["string", "null"]},
+    "decision_receipt_id": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

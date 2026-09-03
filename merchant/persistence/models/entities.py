@@ -251,7 +251,6 @@ class UserKey(Base):
 
 class UserIntentAssertion(Base):
     """A user-signed intent assertion (Workstream E).
-
     Root of authority: the PII-owning human signs an intent assertion binding
     their identity (user_id, user_key_id), the merchant, the trusted delegate,
     the checkout action and a spend ceiling. The merchant verifies the Ed25519
@@ -278,3 +277,48 @@ class UserIntentAssertion(Base):
     signature: Mapped[str] = mapped_column(String, default="")
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Order(Base):
+    """Long-lived merchant order created when a checkout payment completes.
+
+    A Checkout Session is not the entire commercial object: once payment is
+    verified and the session reaches `completed`, the merchant materializes a
+    durable Order bound to (and referencing) that checkout. The order carries
+    authoritative references to the checkout, payment, execution mandate /
+    decision receipt, the resolved line items, the authoritative amount, and the
+    fulfillment state — so an unknown buyer can read a complete, authoritative
+    commerce lifecycle AFTER payment without either party introducing a second
+    source of order truth.
+
+    Constraints:
+    - order_status: `placed` (created at completion), later advanced by
+      fulfillment transitions operated under admin authorization.
+    - fulfillment_status: `pending` -> `placed` -> `packed` -> `shipped` ->
+      `delivered` (deterministic, validated transitions; see domain/order.py).
+    - At most one Order per successful CheckoutSession (unique checkout ref).
+    """
+    __tablename__ = "orders"
+
+    order_id: Mapped[str] = mapped_column(String, primary_key=True)
+    checkout_session_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    buyer_agent_id: Mapped[str] = mapped_column(String, index=True)
+    delegation_id: Mapped[str] = mapped_column(String)
+    merchant_id: Mapped[str] = mapped_column(String)
+    line_items: Mapped[str] = mapped_column(String, default="[]")  # JSON (resolved)
+    authorized_amount_paise: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String, default="INR")
+    payment_driver: Mapped[str | None] = mapped_column(String, nullable=True)
+    razorpay_order_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    razorpay_payment_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    execution_mandate_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    decision_receipt_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    order_status: Mapped[str] = mapped_column(String, default="placed")
+    # Fulfillment model (minimal): pending -> placed -> packed -> shipped -> delivered.
+    fulfillment_status: Mapped[str] = mapped_column(String, default="pending")
+    fulfillment_method: Mapped[str] = mapped_column(String, default="")
+    destination: Mapped[str] = mapped_column(String, default="")
+    estimated_delivery: Mapped[str | None] = mapped_column(String, nullable=True)
+    tracking_reference: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

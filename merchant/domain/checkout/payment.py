@@ -205,7 +205,18 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: "PaymentOutcome
     db.flush()
 
     # AP2: issue a signed Decision Receipt binding mandate + policy + payment.
-    _issue_receipt_for_outcome(db, cs, outcome)
+    receipt_id = _issue_receipt_for_outcome(db, cs, outcome)
+
+    # Materialize the durable Order for a successful payment (M3). Creation is
+    # idempotent and shares this transaction: a completed checkout produces at
+    # most one Order. The order preserves authoritative references to checkout,
+    # payment, execution mandate, decision receipt, line items and amount.
+    if cs.status == "completed":
+        from merchant.domain import order as order_service
+
+        order = order_service.create_order_from_checkout(db, cs)
+        if receipt_id:
+            order.decision_receipt_id = receipt_id
 
     resp = CompleteResponse(checkout_session=serialize_session(db, cs))
     if binding_declined:
@@ -237,20 +248,21 @@ def _finalize_payment(db: Session, cs: CheckoutSession, outcome: "PaymentOutcome
     return resp
 
 
-def _issue_receipt_for_outcome(db: Session, cs: CheckoutSession, outcome: "PaymentOutcome") -> None:
+def _issue_receipt_for_outcome(db: Session, cs: CheckoutSession, outcome: "PaymentOutcome") -> str | None:
     """Create + sign a Decision Receipt only when an Execution Mandate exists.
 
     Old/legacy transactions without a mandate (created before the AP2 layer)
     simply have no receipt — provenance reports NOT_AVAILABLE for them.
+    Returns the receipt_id (or None).
     """
     if not cs.execution_mandate_id:
-        return
+        return None
     from merchant.persistence.models.entities import ExecutionMandate, PolicyDecision
     from merchant.ap2 import authorization_service
 
     mandate = db.get(ExecutionMandate, cs.execution_mandate_id)
     if mandate is None:
-        return
+        return None
     decision = (
         db.query(PolicyDecision)
         .filter(PolicyDecision.execution_mandate_id == mandate.mandate_id)
@@ -284,6 +296,7 @@ def _issue_receipt_for_outcome(db: Session, cs: CheckoutSession, outcome: "Payme
         },
     )
     db.flush()
+    return receipt.receipt_id
 
 
 def reconcile_session(db: Session, checkout_session_id: str) -> CompleteResponse:

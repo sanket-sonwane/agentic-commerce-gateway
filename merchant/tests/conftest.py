@@ -39,6 +39,7 @@ from merchant.persistence.models.entities import (  # noqa: E402
     CheckoutSession,
     Delegation,
     IdempotencyKey,
+    Order,
     Pack,
     Reservation,
 )
@@ -56,7 +57,7 @@ def clean_state(seeded_db):
     """Fresh transactions + restored catalog stock + fresh delegations per test."""
     catalog = json.loads((ROOT / "merchant" / "seed" / "catalog.json").read_text(encoding="utf-8"))
     with mutate() as db:
-        for model in (Reservation, IdempotencyKey, AuditEvent, CheckoutSession, Delegation):
+        for model in (Order, Reservation, IdempotencyKey, AuditEvent, CheckoutSession, Delegation):
             db.query(model).delete()
         for prod in catalog["products"]:
             for pack in prod["packs"]:

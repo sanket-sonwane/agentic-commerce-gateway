@@ -24,6 +24,7 @@ from merchant.persistence.models.entities import (
     CheckoutSession,
     Delegation,
     IdempotencyKey,
+    Order,
     Pack,
     Reservation,
 )
@@ -171,7 +172,7 @@ def reset_demo():
     """
     from scripts.seed_catalog import seed_delegations
 
-    deleted = ["reservations", "idempotency_keys", "checkout_sessions", "delegations"]
+    deleted = ["orders", "reservations", "idempotency_keys", "checkout_sessions", "delegations"]
     with mutate() as db:
         prior = db.query(AuditEvent).count()
         audit_service.append_event(
@@ -186,7 +187,7 @@ def reset_demo():
                 "audit_events_before": prior,
             },
         )
-        for model in (Reservation, IdempotencyKey, CheckoutSession, Delegation):
+        for model in (Order, Reservation, IdempotencyKey, CheckoutSession, Delegation):
             db.query(model).delete()
         data = json.loads((settings_catalog_path()).read_text(encoding="utf-8"))
         for prod in data["products"]:
@@ -229,6 +230,86 @@ def settings_catalog_path():
     from pathlib import Path
 
     return Path(__file__).resolve().parents[1] / "seed" / "catalog.json"
+
+
+class FulfillmentRequest(BaseModel):
+    order_id: str
+    target: str
+    method: str = ""
+    destination: str = ""
+    estimated_delivery: str | None = None
+    tracking_reference: str | None = None
+
+
+@router.post("/orders/{order_id}/fulfillment", dependencies=[Depends(require_admin)])
+def advance_order_fulfillment(order_id: str, req: FulfillmentRequest):
+    """Operator-authorized fulfillment advancement (validated + audited).
+
+    Only the operator can move an order through the deterministic state machine
+    (pending -> placed -> packed -> shipped -> delivered). Illegal transitions
+    are rejected with INVALID_STATE_TRANSITION so the public order APIs always
+    serve a provenance-clean fulfillment picture.
+    """
+    from merchant.domain import order as order_service
+
+    with mutate() as db:
+        order = order_service.advance_fulfillment(
+            db,
+            order_id,
+            req.target,
+            method=req.method,
+            destination=req.destination,
+            estimated_delivery=req.estimated_delivery,
+            tracking_reference=req.tracking_reference,
+        )
+        return {"order": order_service.serialize_order(order)}
+
+
+@router.post("/delegations/{delegation_id}/revoke", dependencies=[Depends(require_admin)])
+def revoke_delegation(delegation_id: str):
+    """Revoke a delegation (M8): the delegation can no longer authorize new
+    purchases.
+
+    ``validate_delegation`` fails closed on any non-active status, so once
+    revoked the buyer can no longer create or complete new purchases with this
+    delegation token. Revocation is audited and idempotent (revoking an already
+    revoked delegation is a no-op success).
+    """
+    from merchant.persistence.db import utcnow
+    from merchant.persistence.models.entities import Delegation
+
+    with mutate() as db:
+        delegation = db.get(Delegation, delegation_id)
+        if delegation is None:
+            from merchant.persistence.models.dto import ErrorCode, ProtocolError
+
+            raise ProtocolError(
+                ErrorCode.CHECKOUT_NOT_FOUND,
+                f"Delegation {delegation_id} not found",
+                http_status=404,
+                details={"delegation_id": delegation_id},
+            )
+        already = delegation.status == "revoked"
+        delegation.status = "revoked"
+        audit_service.append_event(
+            db,
+            actor="operator",
+            action="delegation_revoked",
+            decision="info",
+            reasoning_summary=(
+                f"Delegation {delegation_id} revoked (was {'already revoked' if already else 'active'})"
+            ),
+            payload={
+                "delegation_id": delegation_id,
+                "buyer_agent_id": delegation.buyer_agent_id,
+                "revoked_at": utcnow().isoformat() + "Z",
+            },
+        )
+        return {
+            "delegation_id": delegation_id,
+            "status": "revoked",
+            "already_revoked": already,
+        }
 
 
 @router.get("/ops/status", dependencies=[Depends(require_admin)])
