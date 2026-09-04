@@ -174,8 +174,8 @@ export default function OpsView({ focusSessionId = null, onSessionObserved }) {
       ) : selected ? (
         <SessionDetail sessionId={selected} onSessionObserved={onSessionObserved} />
       ) : (
-        <div className="empty-state ops-empty">
-          Select a transaction to inspect its full audit trail.
+        <div className="empty-state">
+          Select a transaction to inspect its plain answer, safety checks, payment and audit trail.
         </div>
       )}
     </div>
@@ -234,6 +234,9 @@ function SessionDetail({ sessionId, onSessionObserved }) {
       <div className="ops-section-title">Plain answer</div>
       <div className="explain-box">
         <div className="headline">{explanation?.explanation || '\u2026'}</div>
+        {!!explanation?.timeline_facts?.length && (
+          <div className="explain-text">{explanation.timeline_facts.join(' ')}</div>
+        )}
       </div>
 
       <div className="ops-section-title"><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Safety checks</div>
