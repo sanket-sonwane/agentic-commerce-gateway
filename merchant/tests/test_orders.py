@@ -372,3 +372,188 @@ def _order_id_for(client, checkout_session_id):
         if o["checkout_session_id"] == checkout_session_id:
             return o["order_id"]
     raise AssertionError(f"no order for {checkout_session_id}")
+
+
+# ------------------------------------------------------------------ Phase 2
+# Commercial-term invariant: the fulfillment terms declared at checkout must be
+# identical to the terms that are authorized (post update+confirm) and to the
+# terms bound on the completed Order. No path may silently alter them.
+
+
+def _set_price(pack_id, price):
+    from merchant.persistence.db import mutate
+    from merchant.persistence.models.entities import Pack
+
+    with mutate() as db:
+        db.get(Pack, pack_id).price = price
+
+
+def _session(client, csid):
+    r = client.get(f"/checkout_sessions/{csid}")
+    assert r.status_code == 200, r.text
+    return r.json()["checkout_session"]
+
+
+def _confirm(client, csid, version):
+    return client.post(
+        f"/checkout_sessions/{csid}/confirm",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "accept_new_terms": True, "version": version},
+    )
+
+
+def test_fulfillment_terms_survive_update_then_confirm(client):
+    """Declared delivery+address survive a basket update AND a price confirmation."""
+    resp = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}],
+              "fulfillment_method": "delivery", "destination": DELIVERY_ADDR},
+    )
+    assert resp.status_code == 201, resp.text
+    csid = resp.json()["checkout_session"]["checkout_session_id"]
+
+    # 1. Basket update: switch to a different pack (bumps version). Fulfillment
+    #    must not reset to defaults.
+    upd = client.put(
+        f"/checkout_sessions/{csid}",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_eggs_farm", "pack_id": "pack_eggs_12", "quantity": 1}]},
+    )
+    assert upd.status_code == 200, upd.text
+    assert _session(client, csid)["fulfillment_method"] == "delivery"
+    assert _session(client, csid)["destination"] == DELIVERY_ADDR
+
+    # 2. Force a price change on the updated pack so completion needs confirm.
+    _set_price("pack_eggs_12", 110)
+    r = _complete(client, csid, key="ff-updconfirm-1")
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PRICE_CHANGED"
+    v_after_change = _session(client, csid)["version"]
+
+    # 3. Confirm the current version; terms must persist across the confirm.
+    ok = _confirm(client, csid, version=v_after_change)
+    assert ok.status_code == 200, ok.text
+    after_confirm = _session(client, csid)
+    assert after_confirm["fulfillment_method"] == "delivery"
+    assert after_confirm["destination"] == DELIVERY_ADDR
+    assert after_confirm["status"] == "requires_payment"
+
+    # 4. Complete; the Order must bind the same declared terms.
+    done = _complete(client, csid, key="ff-updconfirm-2")
+    assert done.status_code == 200, done.text
+    assert done.json()["checkout_session"]["status"] == "completed"
+    od = client.get(
+        f"/orders/{_order_id_for(client, csid)}",
+        params={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d"},
+    )
+    assert od.status_code == 200, od.text
+    assert od.json()["fulfillment_method"] == "delivery"
+    assert od.json()["destination"] == DELIVERY_ADDR
+
+
+def test_confirm_version_mismatch_does_not_alter_fulfillment_terms(client):
+    """A stale confirmation (CONFIRMATION_STALE) leaves pickup terms untouched."""
+    resp = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_eggs_farm", "pack_id": "pack_eggs_12", "quantity": 1}],
+              "fulfillment_method": "pickup"},
+    )
+    assert resp.status_code == 201, resp.text
+    csid = resp.json()["checkout_session"]["checkout_session_id"]
+    v0 = _session(client, csid)["version"]
+    assert _session(client, csid)["fulfillment_method"] == "pickup"
+
+    # Price change #1 -> PRICE_CHANGED (version stays v0).
+    _set_price("pack_eggs_12", 120)
+    r = _complete(client, csid, key="ff-stale-1")
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PRICE_CHANGED"
+    # Confirm correctly -> bumps to v0+1, back to requires_payment.
+    ok1 = _confirm(client, csid, version=v0)
+    assert ok1.status_code == 200, ok1.text
+    assert _session(client, csid)["status"] == "requires_payment"
+
+    # Price change #2 -> PRICE_CHANGED again (version stays v0+1).
+    _set_price("pack_eggs_12", 130)
+    r2 = _complete(client, csid, key="ff-stale-2")
+    assert r2.status_code == 409
+    assert r2.json()["error"]["code"] == "PRICE_CHANGED"
+    cur_v = _session(client, csid)["version"]
+    assert cur_v == v0 + 1
+
+    # Stale confirmation (old version) must be rejected and must NOT change terms.
+    stale = _confirm(client, csid, version=v0)
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "CONFIRMATION_STALE"
+    still = _session(client, csid)
+    assert still["fulfillment_method"] == "pickup"
+    assert still["version"] == cur_v
+
+    # Version-matched confirm then complete; order carries pickup.
+    ok = _confirm(client, csid, version=cur_v)
+    assert ok.status_code == 200, ok.text
+    done = _complete(client, csid, key="ff-stale-3")
+    assert done.status_code == 200, done.text
+    assert done.json()["checkout_session"]["status"] == "completed"
+    od = client.get(
+        f"/orders/{_order_id_for(client, csid)}",
+        params={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d"},
+    )
+    assert od.json()["fulfillment_method"] == "pickup"
+
+
+# ------------------------------------------------------------------ Phase 4
+# Server-side consumer order proxy: the dashboard reads authoritative Orders
+# without ever holding the buyer's delegation token (resolved server-side).
+
+
+def test_consumer_orders_proxy_returns_demo_buyer_orders(client):
+    csid = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_llm_01", "delegation_token": "dlg_9f8e7d",
+              "line_items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}],
+              "fulfillment_method": "delivery", "destination": DELIVERY_ADDR},
+    ).json()["checkout_session"]["checkout_session_id"]
+    r = _complete(client, csid, key="proxy-1")
+    assert r.status_code == 200, r.text
+
+    # No delegation token passed — the proxy resolves the acting buyer server-side.
+    lst = client.get("/consumer/orders")
+    assert lst.status_code == 200, lst.text
+    orders = lst.json()["orders"]
+    assert len(orders) == 1
+    o = orders[0]
+    assert o["checkout_session_id"] == csid
+    assert o["fulfillment_method"] == "delivery"
+    assert o["destination"] == DELIVERY_ADDR
+
+    single = client.get(f"/consumer/orders/{o['order_id']}")
+    assert single.status_code == 200, single.text
+    assert single.json()["order_id"] == o["order_id"]
+
+
+def test_consumer_orders_proxy_scoped_to_acting_buyer(client):
+    # An order belonging to a DIFFERENT buyer must not surface through the proxy.
+    other = client.post(
+        "/checkout_sessions",
+        json={"buyer_agent_id": "buyer_agent_b_deterministic", "delegation_token": "dlg_buyerb_001",
+              "line_items": [{"product_id": "prod_milk_amul", "pack_id": "pack_milk_amul_500", "quantity": 1}]},
+    ).json()["checkout_session"]["checkout_session_id"]
+    rother = client.post(
+        f"/checkout_sessions/{other}/complete",
+        json={"buyer_agent_id": "buyer_agent_b_deterministic", "delegation_token": "dlg_buyerb_001"},
+        headers={"Idempotency-Key": "proxy-other"},
+    )
+    assert rother.status_code == 200, rother.text
+
+    # Proxy only sees the acting demo buyer's orders (strict ownership).
+    lst = client.get("/consumer/orders")
+    assert lst.status_code == 200, lst.text
+    assert lst.json()["count"] == 0
+    assert all(o["buyer_agent_id"] == "buyer_agent_llm_01" for o in lst.json()["orders"])
+
+    # A direct single-order read of the foreign buyer's order is rejected.
+    single = client.get("/consumer/orders/ord_does_not_matter")
+    assert single.status_code in (403, 404), single.text

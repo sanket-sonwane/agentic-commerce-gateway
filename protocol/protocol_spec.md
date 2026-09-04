@@ -209,3 +209,33 @@ for a deterministic reference client that completes purchases without any
 knowledge of merchant internals, and `cert_unknown_buyer/client.py` for a
 machine-checkable certification client that validates the live merchant against
 its published capability manifest + JSON schemas (`/protocol/schemas/*.json`).
+
+## Certification (unknown-buyer lifecycle)
+
+A machine-checkable certification of the full premature-payment/public-HTTP
+unknown-buyer transaction lifecycle. Client: `cert_unknown_buyer/client.py`
+(pure HTTP/`httpx`, no merchant imports). All reads go through the public
+capability manifest at `/.well-known/merchant` and its advertised endpoints.
+
+| # | Claim | How it is satisfied |
+|---|-------|---------------------|
+| 1 | **Discover** | `cert` fetches `GET /.well-known/merchant`, checks `endpoints`, `payment`, and `fulfillment`; then `POST /discover` to obtain a basket proposal. |
+| 2 | **Catalog** | `GET /catalog/products/{id}` and `GET /catalog/packs/{id}` return authoritative price/stock; the discovered basket resolves packs. |
+| 3 | **Commerce semantics** | `cert` validates catalog + discovery responses against `/protocol/schemas/*.json`. |
+| 4 | **Checkout** | `POST /checkout_sessions` creates a session with an explicit `fulfillment.method` (`delivery`/`pickup`), returning v1 with `requires_payment`. |
+| 5 | **Fulfillment selection** | Fulfillment is bound at checkout create; `PUT` update and `POST confirm` preserve it; a non-`delivery`/`pickup` method is rejected with `INVALID_REQUEST` and creates no order. |
+| 6 | **User authorization** | `POST /checkout_sessions/{id}/confirm` records acceptance of the authoritative terms; a version mismatch returns `CONFIRMATION_STALE` and changes no fulfillment terms. |
+| 7 | **Payment** | `POST /checkout_sessions/{id}/complete` (Razorpay, test mode) settles the charged amount; completing an already-completed session returns the existing order and never double-charges (idempotent). |
+| 8 | **Authoritative order** | A successful completion produces exactly one order via `create_order_from_checkout`; `GET /orders` and `GET /orders/{order_id}` return the authoritative, buyer-scoped order, amount, and identifiers. |
+| 9 | **Fulfillment status** | Orders advance through the exact chain `pending→placed→packed→shipped→delivered`; any other transition is rejected with `INVALID_STATE_TRANSITION`. |
+| 10 | **Provenance / audit** | `GET /consumer/transactions/{id}/provenance` returns the signed authorization with `provenance_available=true` and all checks green; `GET /audit_logs/verify` confirms the hash-chain integrity. |
+| 11 | **Failure scenario** | `test_unknown_buyer_failure.py` proves a stock-out mid-checkout yields `STOCK_UNAVAILABLE` (409), leaves **no** order or charge, and the buyer re-discovers an alternative and completes **one** authoritative order — failure recovery, not data corruption. |
+
+**Scope & limitations.** Covers premature-payment + public-HTTP unknown-buyer
+purchases. Refunds, returns, reorders, and a second authorisation system are
+explicitly out of scope. Payment is Razorpay test mode (`test_mode=true`).
+Pickup fulfillment carries no location/tracking (`tracking_supported=false`).
+The `cert` client validates responses and lifecycle invariants but does not
+drive fulfillment-state transitions (no admin/operator call), so point 9's
+exact-chain guarantee is enforced by merchant-state-machine tests
+(`test_c2_c3_state_security.py`) rather than by the cert client itself.
