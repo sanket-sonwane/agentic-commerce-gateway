@@ -748,6 +748,7 @@ h1, h2, h3 { font-family: var(--font-head); letter-spacing: -0.01em; }
 .txn-row-desc { font-size: 13px; font-weight: 600; }
 .txn-row-amt { font-family: var(--font-head); font-weight: 800; font-size: 14px; }
 .txn-row-time { font-size: 11px; color: var(--faint); }
+.txn-row-fulfillment { display: block; font-style: normal; font-weight: 600; opacity: 0.75; margin-top: 1px; }
 
 /* ---------------- responsive ---------------- */
 @media (max-width: 1280px) {

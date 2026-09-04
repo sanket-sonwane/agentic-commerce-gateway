@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ShoppingBag, Sun, Moon, X, ShieldCheck, LayoutDashboard,
   ShoppingCart, ReceiptText, History, Lock,
@@ -6,10 +6,9 @@ import {
 import ChatView from './views/ChatView.jsx'
 import OpsView from './views/OpsView.jsx'
 import CurrentTransactionPanel from './components/CurrentTransactionPanel.jsx'
-import TransactionsView, { loadPersisted, mergeSessions } from './components/TransactionsView.jsx'
+import TransactionsView from './components/TransactionsView.jsx'
 import ConsumerProvenanceDrawer from './components/ConsumerProvenanceDrawer.jsx'
 import { checkHealth, merchantFetch } from './api.js'
-import { orderTitle } from './utils/events.js'
 import { INTEGRITY } from './utils/terminology.js'
 
 export default function App() {
@@ -21,63 +20,40 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('acg-theme') || 'dark')
   const [health, setHealth] = useState({ merchant: null, buyer: null })
   const [integrity, setIntegrity] = useState(null)
-  const [sessions, setSessions] = useState(() => loadPersisted())
+  const [orders, setOrders] = useState([])
 
-  // Live mirror of `sessions` so the reconciler poll can stay stable while
-  // always reading the freshest per-session status from the backend.
-  const sessionsRef = useRef(sessions)
-  useEffect(() => { sessionsRef.current = sessions }, [sessions])
-
-  // Active transaction = most recent observed session (by updated_at).
-  const activeSession = Object.entries(sessions).sort(
-    (a, b) => (b[1]?.updated_at || 0) - (a[1]?.updated_at || 0),
-  )[0]?.[0] || null
-
-  const onSessionObserved = (meta) => {
-    if (!meta?.checkout_session_id) return
-    setSessions(prev => mergeSessions(prev, { [meta.checkout_session_id]: meta }))
+  // Authoritative consumer Orders (paid purchases + fulfilment), read via the
+  // server-side consumer proxy (GET /consumer/orders). This is the source of
+  // truth for the Transactions view; nothing here is persisted to localStorage.
+  const refreshOrders = async () => {
+    try {
+      const r = await merchantFetch('/consumer/orders')
+      if (!r.ok || !r.body?.orders) return
+      const next = r.body.orders
+      setOrders(prev => {
+        const key = o => `${o.checkout_session_id}::${o.fulfillment_status}::${o.order_status}::${o.amount}`
+        const same = prev.length === next.length && prev.every((o, i) => key(o) === key(next[i]))
+        return same ? prev : next
+      })
+    } catch { /* merchant down — leave as-is */ }
   }
 
-  // Status reconciler: the SSE stream can leave a session at `payment_pending`
-  // (the headless saved-card auto-charge race where the background worker
-  // finalizes the DB to `completed` but never pushes that to the client). The
-  // consumer tab therefore re-reads the authoritative status from the public
-  // GET /checkout_sessions/{id} endpoint and reconciles through the normal
-  // mergeSessions flow, so non-terminal sessions catch up within a few seconds.
+  // Keep the authoritative order list fresh: on mount, on a light poll, and
+  // whenever a chat/ops event observes a new session.
   useEffect(() => {
-    const TERMINAL = new Set(['completed', 'declined', 'cancelled'])
-    let alive = true
-    const reconcile = async () => {
-      const current = sessionsRef.current || {}
-      const pending = Object.entries(current)
-        .filter(([, m]) => !TERMINAL.has(m.status))
-        .sort((a, b) => (b[1]?.updated_at || 0) - (a[1]?.updated_at || 0))
-        .slice(0, 20)
-      for (const [id] of pending) {
-        if (!alive) return
-        try {
-          const r = await merchantFetch(`/checkout_sessions/${id}`)
-          if (!alive || !r.ok || !r.body?.checkout_session) continue
-          const s = r.body.checkout_session
-          if (s.status && s.status !== current[id]?.status) {
-            setSessions(prev => mergeSessions(prev, {
-              [id]: {
-                checkout_session_id: id,
-                status: s.status,
-                payment: s.payment,
-                amount: s.totals?.total,
-                description: orderTitle(s.line_items || []),
-                updated_at: Date.now(),
-              },
-            }))
-          }
-        } catch { /* merchant down — leave as-is */ }
-      }
-    }
-    reconcile()
-    const t = setInterval(reconcile, 3000)
-    return () => { alive = false; clearInterval(t) }
+    refreshOrders()
+    const t = setInterval(refreshOrders, 3000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Active transaction = the most recent authoritative Order (drives the
+  // consumer proof panel, which reads its own authoritative endpoints).
+  const activeSession = [...orders].sort(
+    (a, b) => (new Date(b.created_at || 0) - new Date(a.created_at || 0)),
+  )[0]?.checkout_session_id || null
+
+  const onSessionObserved = () => { refreshOrders() }
 
   useEffect(() => {
     merchantFetch('/audit_logs/verify').then(r => setIntegrity(r.body)).catch(() => {})
@@ -188,7 +164,7 @@ export default function App() {
           {view === 'shop' ? (
             <ChatView onRequestOps={openOps} onSessionObserved={onSessionObserved} />
           ) : (
-            <TransactionsView sessions={sessions} onOpen={openProof} />
+            <TransactionsView orders={orders} onOpen={openProof} />
           )}
         </main>
 

@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # Protocol identity
     protocol_version: str = "Agentic Commerce Protocol — Reference v0.1"
 
+    # Acting consumer (demo) for the server-side consumer order proxy. The
+    # delegation token stays SERVER-SIDE: the browser dashboard calls the
+    # consumer routes and never holds the buyer's ownership credential.
+    demo_buyer_agent_id: str = "buyer_agent_llm_01"
+    demo_delegation_token: str = "dlg_9f8e7d"
+
     # Ports
     merchant_port: int = 8000
     buyer_service_port: int = 8001
