@@ -87,7 +87,7 @@ export function AgentTraceDetail({ agentSessionId }) {
   const proposal = session.proposal
 
   return (
-    <>
+    <div>
       <div className="ops-col">
         <h3><Bot size={13} /> Merchant Agent</h3>
         <div className="explain-box" style={{ marginBottom: 10 }}>
@@ -181,7 +181,7 @@ export function AgentTraceDetail({ agentSessionId }) {
           <div className="muted">No payment was attempted.</div>
         )}
       </div>
-    </>
+    </div>
   )
 }
 

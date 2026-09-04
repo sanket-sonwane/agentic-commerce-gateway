@@ -221,7 +221,7 @@ function SessionDetail({ sessionId, onSessionObserved }) {
   }
 
   return (
-    <>
+    <div>
       <div className="sess-header">
         <button className="icon-btn" title={sessionId} onClick={copyId}>
           {copied ? <Check size={13} className="intact-yes" /> : <Copy size={13} />}
@@ -235,7 +235,19 @@ function SessionDetail({ sessionId, onSessionObserved }) {
       <div className="explain-box">
         <div className="headline">{explanation?.explanation || '\u2026'}</div>
         {!!explanation?.timeline_facts?.length && (
-          <div className="explain-text">{explanation.timeline_facts.join(' ')}</div>
+          <>
+            <p className="explain-compact">
+              {explanation.timeline_facts.slice(0, 3).join(' · ')}
+            </p>
+            {explanation.timeline_facts.length > 3 && (
+              <details className="explain-more">
+                <summary>+{explanation.timeline_facts.length - 3} more steps</summary>
+                <p style={{ margin: '4px 0 0' }}>
+                  {explanation.timeline_facts.slice(3).join(' · ')}
+                </p>
+              </details>
+            )}
+          </>
         )}
       </div>
 
@@ -290,7 +302,7 @@ function SessionDetail({ sessionId, onSessionObserved }) {
 
       <div className="ops-section-title">Audit timeline</div>
       <AuditTimeline events={events} stepper />
-    </>
+    </div>
   )
 }
 
@@ -302,7 +314,7 @@ function ProvenancePanel({ provenance }) {
   const passCount = (provenance.checks || []).filter(c => c.ok).length
   const total = (provenance.checks || []).length
   return (
-    <>
+    <div>
       <div className="ops-section-title">
         <ShieldCheck size={11} style={{ verticalAlign: -1 }} /> Authorization &amp; Proof
         <span style={{ marginLeft: 'auto', fontSize: 10 }}>
@@ -349,6 +361,6 @@ function ProvenancePanel({ provenance }) {
           <div className="muted">{provenance.summary}</div>
         )}
       </div>
-    </>
+    </div>
   )
 }
