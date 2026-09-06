@@ -1,4 +1,4 @@
-# Agentic Commerce Gateway (ACG)
+﻿# Agentic Commerce Gateway (ACG)
 
 > **ACG makes a normal merchant ready for AI buyers.**
 >
@@ -147,6 +147,7 @@ Behind it, ACG makes sure every important step is controlled.
 
 ![dashboard overview](assets/dashboard.png)
 
+
 ### What the dashboard shows
 
 The dashboard lets us see both sides of the system:
@@ -158,6 +159,8 @@ The dashboard lets us see both sides of the system:
 The dashboard is not only for showing the UI.
 
 It is also the proof surface for the transaction.
+
+<video controls src="assets/Demo.mp4" width="100%"></video>
 
 ---
 
