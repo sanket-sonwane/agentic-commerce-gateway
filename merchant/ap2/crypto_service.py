@@ -88,6 +88,9 @@ def _key_file() -> Path:
 
 
 def _load_or_create_private_key() -> Ed25519PrivateKey:
+    env_pem = settings.merchant_signing_key_pem.strip()
+    if env_pem:
+        return serialization.load_pem_private_key(env_pem.encode("utf-8"), password=None)
     key_file = _key_file()
     if key_file.exists():
         raw = key_file.read_bytes()

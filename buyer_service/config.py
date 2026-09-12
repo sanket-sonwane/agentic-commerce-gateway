@@ -16,5 +16,8 @@ class BuyerSettings(BaseSettings):
     max_agent_iterations: int = 12
     buyer_service_port: int = 8001
 
+    # CORS: comma-separated allowlist (deployed). Empty -> "*" (local dev).
+    cors_origins: str = ""
+
 
 settings = BuyerSettings()

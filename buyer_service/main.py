@@ -23,11 +23,13 @@ from buyer_service.timing import recorder
 
 app = FastAPI(title="Agentic Commerce Gateway — Buyer Service", version="0.1.0")
 
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins or ["*"],  # empty -> permissive (local dev)
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=bool(_cors_origins),  # "*" + credentials is invalid in Starlette
 )
 
 agent = BuyerAgent()

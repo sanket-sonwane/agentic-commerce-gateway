@@ -1,0 +1,54 @@
+# Render blueprint — free-tier deployment of the ACG backends.
+#
+# Bring up from the Render dashboard: New -> Blueprint -> this repo (render.yaml).
+# The dashboard (frontend) deploys separately on Vercel from the ./dashboard dir.
+#
+# Secrets are NOT stored here. After the blueprint creates the services, set
+# them under each service's Environment in the Render dashboard:
+#
+#   acg-merchant:
+#     LLM_API_KEY                  Groq API key
+#     RAZORPAY_KEY_ID              rzp_test_... (test mode)
+#     RAZORPAY_KEY_SECRET          matching test secret
+#     ADMIN_TOKEN                  operator passphrase for the Ops view
+#     MERCHANT_SIGNING_KEY_PEM     contents of local secrets/merchant_signing_key.pem
+#     CORS_ORIGINS                 comma-separated list of allowed browser origins,
+#                                  e.g. https://agentic-commerce-gateway.vercel.app
+#     (optional) COOKIE_SECURE=1   sets admin cookie SameSite=None; Secure (required
+#                                  for cross-origin admin login from the Vercel app)
+#
+#   acg-buyer:
+#     LLM_API_KEY                  same Groq key
+#     CORS_ORIGINS                 same allowlist
+#
+# DB note (free tier): filesystem + data/merchant.db are ephemeral and reset on
+# restart. The merchant auto-seeds the catalog on boot when empty, so the demo
+# self-heals; past transactions do not survive a restart.
+services:
+  - type: web
+    name: acg-merchant
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn merchant.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: PAYMENT_DRIVER
+        value: saved
+
+  - type: web
+    name: acg-buyer
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn buyer_service.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: MERCHANT_BASE_URL
+        value: https://acg-merchant.onrender.com

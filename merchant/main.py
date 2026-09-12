@@ -39,6 +39,11 @@ def _configure_app_logging() -> None:
 async def lifespan(app: FastAPI):
     _configure_app_logging()
     init_db()
+    # Ephemeral environments (serverless / free-tier restart) lose the DB;
+    # auto-seed the demo catalog on boot when empty (seed_catalog is guarded).
+    from scripts.seed_catalog import main as seed_main
+
+    seed_main()
     logger.info("Merchant agent ready | driver=%s", settings.payment_driver)
     from merchant.domain.reconcile_worker import start_reconcile_worker
 
@@ -54,11 +59,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # demo environment
+    allow_origins=_cors_origins or ["*"],  # empty -> permissive (local dev)
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=bool(_cors_origins),  # "*" + credentials is invalid in Starlette
 )
 
 app.include_router(discovery.router)

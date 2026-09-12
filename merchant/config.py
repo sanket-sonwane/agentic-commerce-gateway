@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # key is load-or-generated under ./secrets/merchant_signing_key.pem
     # (gitignored). The private key is never exposed.
     merchant_signing_key_path: str = ""
+    # Optional: inline Ed25519 private key PEM (deployed environments with no
+    # writable secrets dir). Takes precedence over the path/file.
+    merchant_signing_key_pem: str = ""
     mandate_ttl_minutes: int = 10  # Execution Mandate freshness window
 
     # Protocol identity
@@ -69,6 +72,12 @@ class Settings(BaseSettings):
     # Ports
     merchant_port: int = 8000
     buyer_service_port: int = 8001
+
+    # CORS: comma-separated allowlist of origins (deployed). Empty -> "*" (local dev).
+    cors_origins: str = ""
+
+    # Cross-origin (deployed) admin cookie requires Secure + SameSite=None.
+    cookie_secure: bool = False
 
 
 settings = Settings()

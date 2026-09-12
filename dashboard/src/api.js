@@ -1,7 +1,14 @@
-// API helpers. Vite proxies /api/merchant -> :8000 and /api/buyer -> :8001.
+// API helpers. Local dev: Vite proxies /api/merchant -> :8000 and
+// /api/buyer -> :8001. Deployed: absolute URLs come from build-time env.
+const MERCHANT_BASE = import.meta.env.VITE_MERCHANT_BASE_URL || '/api/merchant'
+const BUYER_BASE = import.meta.env.VITE_BUYER_BASE_URL || '/api/buyer'
+// Cross-origin (deployed) calls need credentials to carry the admin session
+// cookie; same-origin (/api/* via the Vite proxy) keeps the default behavior.
+const CREDENTIALS = import.meta.env.VITE_MERCHANT_BASE_URL ? 'include' : 'same-origin'
 
 export async function merchantFetch(path, options = {}) {
-  const res = await fetch(`/api/merchant${path}`, {
+  const res = await fetch(`${MERCHANT_BASE}${path}`, {
+    credentials: CREDENTIALS,
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
   })
@@ -29,21 +36,21 @@ export function registerUserKey(payload) {
 }
 
 export async function checkHealth() {
-  const probe = async (base) => {
+  const probe = async (url) => {
     try {
-      const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(4000) })
+      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(4000) })
       return res.ok
     } catch {
       return false
     }
   }
-  const [merchant, buyer] = await Promise.all([probe('/api/merchant'), probe('/api/buyer')])
+  const [merchant, buyer] = await Promise.all([probe(MERCHANT_BASE), probe(BUYER_BASE)])
   return { merchant, buyer }
 }
 
 // POST that streams SSE lines; onEvent called per parsed event.
 export async function streamSSE(path, body, onEvent) {
-  const res = await fetch(`/api/buyer${path}`, {
+  const res = await fetch(`${BUYER_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

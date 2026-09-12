@@ -99,7 +99,8 @@ def admin_login(body: LoginRequest, response: Response):
         _ADMIN_SESSION_COOKIE,
         _issue_admin_session(),
         httponly=True,
-        samesite="lax",
+        samesite="none" if settings.cookie_secure else "lax",
+        secure=settings.cookie_secure,
         max_age=settings.admin_session_ttl_minutes * 60,
         path="/",
     )
@@ -108,7 +109,12 @@ def admin_login(body: LoginRequest, response: Response):
 
 @router.post("/logout")
 def admin_logout(response: Response):
-    response.delete_cookie(_ADMIN_SESSION_COOKIE, path="/")
+    response.delete_cookie(
+        _ADMIN_SESSION_COOKIE,
+        path="/",
+        samesite="none" if settings.cookie_secure else "lax",
+        secure=settings.cookie_secure,
+    )
     return {"status": "logged_out"}
 
 
