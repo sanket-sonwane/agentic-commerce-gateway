@@ -143,11 +143,18 @@ class BillFlowMixin:
                         _state_note({"event": "order_completed", "total": total, "checkout_session_id": csid})
                     )
                 else:
-                    # The gateway has created/authorized a real payment object for
-                    # this session (test-mode token debits sit at the bank and
-                    # capture a few minutes later). This is NOT a dropped
-                    # connection — money was initiated and is awaiting capture.
-                    # Distinguish from the case where no payment object exists yet.
+                    # Three honest sub-cases for a pending auto-pay session:
+                    # 1) A payment object exists at the gateway (authorized,
+                    #    awaiting capture) — the debit is real and settles.
+                    # 2) No payment object YET but a gateway order exists —
+                    #    the recurring debit was created and is in flight at
+                    #    the bank ("Amount yet to be authenticated"); the
+                    #    background reconcile worker completes it automatically.
+                    #    Never narrate this as "nothing happened" — an order
+                    #    DOES exist.
+                    # 3) No order at all — the gateway initiation failed
+                    #    before anything was created; genuinely nothing
+                    #    charged. Only THIS case may say "nothing was charged".
                     rec_pay = rec_session.get("payment", {}) or {}
                     if rec_pay.get("payment_id"):
                         yield {
@@ -160,11 +167,37 @@ class BillFlowMixin:
                             "type": "message",
                             "content": (
                                 "⏳ Your payment was authorized and is waiting for the bank to "
-                                "confirm it (this is normal for auto-pay — it settles within a few "
-                                f"minutes). No amount is confirmed as captured yet, but it is held "
-                                f"against this order, so nothing was lost. Receipt: {csid}."
+                                "confirm it — this is normal for auto-pay and usually takes "
+                                "about 2 minutes. The amount is held against this order, so "
+                                "nothing was lost: it settles automatically and your order "
+                                f"completes the moment it does. No action needed. Receipt: {csid}."
                             ),
                         }
+                        conv.llm_history.append(
+                            _state_note({"event": "payment_pending_auto_settle", "checkout_session_id": csid})
+                        )
+                    elif rec_pay.get("order_id"):
+                        yield {
+                            "type": "status",
+                            "checkout_session_id": csid,
+                            "status": "payment_pending",
+                            "payment": rec_pay,
+                        }
+                        yield {
+                            "type": "message",
+                            "content": (
+                                "⏳ Your previously saved card token was used for a recurring "
+                                "(auto-pay) payment. The payment was created successfully with "
+                                "the gateway and is now pending approval by your bank — this is "
+                                "normal for auto-pay and usually takes about 2 minutes. Once the "
+                                "bank approves it, your order is completed and placed "
+                                "automatically — nothing more to do. "
+                                f"Order receipt: {csid}."
+                            ),
+                        }
+                        conv.llm_history.append(
+                            _state_note({"event": "payment_pending_auto_settle", "checkout_session_id": csid})
+                        )
                     else:
                         yield {
                             "type": "message",

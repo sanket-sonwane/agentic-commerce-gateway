@@ -317,9 +317,12 @@ def test_payment_pending_with_payment_object_does_not_claim_unresolved(routed_me
     assert "no order exists" not in text.lower()
 
 
-def test_payment_pending_without_payment_object_stays_truthful(routed_merchant, buy_client, monkeypatch):
-    """A payment_pending session with NO payment object yet must NOT claim it is
-    authorized/awaiting capture — the honest unresolved story stays."""
+def test_payment_pending_with_order_no_payment_tells_auto_settle_story(routed_merchant, buy_client, monkeypatch):
+    """A payment_pending session with a gateway ORDER but no payment object yet
+    is the async auto-pay window: the recurring debit was created and is in
+    flight at the bank ("amount yet to be authenticated"), and the background
+    reconcile worker settles it automatically. The narration must tell that
+    story — NEVER claim nothing happened / no order exists."""
     pending_no_pay = {
         "checkout_session_id": "cs_pend",
         "status": "payment_pending",
@@ -329,8 +332,33 @@ def test_payment_pending_without_payment_object_stays_truthful(routed_merchant, 
     _, calls, e2 = _bill_then_decision(buy_client, monkeypatch, pending_no_pay, pending_no_pay)
     assert calls.get("reconcile")
     text = " ".join(x.get("content", "") for x in e2 if x.get("type") == "message")
-    assert "nothing was charged" in text.lower()
-    assert "awaiting" not in text.lower()
+    tl = text.lower()
+    assert "recurring" in tl or "auto-pay" in tl
+    assert "automatically" in tl
+    assert "receipt" in tl
+    assert "nothing was charged" not in tl
+    assert "no order exists" not in tl
+    assert "connection dropped" not in tl
+
+
+def test_payment_pending_without_order_object_stays_truthful(routed_merchant, buy_client, monkeypatch):
+    """A payment_pending session with NO gateway order and NO payment object is
+    the honest nothing-created story: gateway initiation failed before anything
+    was created, so nothing was charged."""
+    pending_created_fail = {
+        "checkout_session_id": "cs_pend",
+        "status": "payment_pending",
+        "payment": {},
+        "totals": {"total": 95},
+    }
+    _, calls, e2 = _bill_then_decision(buy_client, monkeypatch, pending_created_fail, pending_created_fail)
+    assert calls.get("reconcile")
+    text = " ".join(x.get("content", "") for x in e2 if x.get("type") == "message")
+    tl = text.lower()
+    assert "nothing was charged" in tl
+    assert "awaiting" not in tl
+    assert "automatically" not in tl
+    assert "no order exists" in tl
 
 
 # ----------------------------------- C9 gateway-unreachable truthfulness
