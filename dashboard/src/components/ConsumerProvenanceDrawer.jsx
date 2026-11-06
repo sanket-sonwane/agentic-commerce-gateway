@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { X, ShieldCheck, Lock } from 'lucide-react'
 import { merchantFetch } from '../api.js'
+import { markSessionGone } from './TransactionsView.jsx'
 import { PAYMENT_STATUS, PROOF_LABELS, PROOF_STATUS } from '../utils/terminology.js'
 
 /**
@@ -15,19 +16,43 @@ import { PAYMENT_STATUS, PROOF_LABELS, PROOF_STATUS } from '../utils/terminology
 export default function ConsumerProvenanceDrawer({ sessionId, onClose }) {
   const [state, setState] = useState(null)
   const [error, setError] = useState(null)
+  const [notFound, setNotFound] = useState(false)
   const [showTech, setShowTech] = useState(false)
 
-  useEffect(() => {
-    let alive = true
+  // Fetchable body so the stale-receipt panel can offer a Retry (covers the
+  // brief boot window of the free-tier instance, not just hard 404s).
+  const load = useCallback(() => {
+    setState(null)
+    setError(null)
     merchantFetch(`/consumer/transactions/${sessionId}/provenance`).then(r => {
-      if (!alive) return
-      if (r.ok && r.body) setState(r.body)
-      else setError(r.body?.error?.message || 'Could not load authorization details')
+      if (r.ok && r.body) {
+        setState(r.body)
+        return
+      }
+      // A 404 "session not found" on a receipt that used to exist almost
+      // always means the receipt predates the last service restart: the
+      // merchant DB is ephemeral on the free tier. Explain instead of dumping
+      // the raw protocol error, and mark the row as pre-restart locally so
+      // the Transactions list converges.
+      const msg = r.body?.error?.message || ''
+      if (r.status === 404 || msg.includes('not found')) {
+        setNotFound(true)
+        markSessionGone(sessionId)
+      } else {
+        setError(msg || 'Could not load authorization details')
+      }
     })
+  }, [sessionId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  useEffect(() => {
     const onKey = e => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
-    return () => { alive = false; window.removeEventListener('keydown', onKey) }
-  }, [sessionId, onClose])
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
     <>
@@ -40,7 +65,28 @@ export default function ConsumerProvenanceDrawer({ sessionId, onClose }) {
         </div>
         <div className="drawer-body">
           {error && <div className="drawer-answer" style={{ color: 'var(--red)' }}>{error}</div>}
-          {!state && !error && <div className="drawer-answer">Reading the authorization trail…</div>}
+          {!state && !error && !notFound && <div className="drawer-answer">Reading the authorization trail…</div>}
+
+          {notFound && (
+            <div className="drawer-answer" style={{ borderColor: 'rgba(250,204,21,0.35)' }}>
+              <span style={{ fontWeight: 800 }}>This receipt predates the last restart.</span>
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                On the free hosting tier the merchant database lives inside the service
+                container, so it resets on every redeploy or cold start (only the product
+                catalog re-seeds). Receipts, orders and saved cards from before a restart
+                are not kept — anything you purchase <b>after</b> the last restart always
+                  opens normally.
+              </p>
+              <p style={{ margin: '6px 0 12px', fontSize: 12, color: 'var(--muted)' }}>
+                Demo tip: place the recurring-token purchase in one sitting after the last
+                push, so the receipt and its saved card resolve while you present.
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="mini-btn" onClick={load}>Retry</button>
+                <button className="mini-btn" onClick={onClose}>Back to transactions</button>
+              </div>
+            </div>
+          )}
 
           {state && (
             <>

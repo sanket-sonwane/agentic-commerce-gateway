@@ -142,8 +142,8 @@ export default function App() {
           </span>
         )}
         <div className="health" title="Service health (refreshes every 12s)">
-          <label><span className={`dot ${health.merchant === true ? 'ok' : health.merchant === false ? 'bad' : ''}`} /> merchant</label>
-          <label><span className={`dot ${health.buyer === true ? 'ok' : health.buyer === false ? 'bad' : ''}`} /> agent</label>
+          <label><span className={`dot ${health.merchant === true ? 'ok' : health.merchant === false ? 'bad' : ''}`} /> merchant{health.merchant === false && <span style={{ color: 'var(--faint)', fontSize: 9 }}> waking…</span>}</label>
+          <label><span className={`dot ${health.buyer === true ? 'ok' : health.buyer === false ? 'bad' : ''}`} /> agent{health.buyer === false && <span style={{ color: 'var(--faint)', fontSize: 9 }}> waking…</span>}</label>
         </div>
         <button className="icon-btn" title="Toggle theme" onClick={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}>
           {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}

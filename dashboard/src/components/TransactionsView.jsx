@@ -36,6 +36,19 @@ export function mergeSessions(prev, next) {
   return out
 }
 
+// Called by the provenance drawer when a receipt turns out to be from before
+// the last merchant restart (free-tier ephemeral DB): dim the row, keep the
+// friendly explanation one click away.
+export function markSessionGone(id) {
+  try {
+    const map = loadPersisted()
+    if (map[id] && !map[id].pre_restart) {
+      map[id] = { ...map[id], pre_restart: true }
+      persist(map)
+    }
+  } catch { /* ignore */ }
+}
+
 export default function TransactionsView({ sessions, onOpen }) {
   const list = useMemo(() => {
     return Object.entries(sessions || {})
@@ -59,11 +72,19 @@ export default function TransactionsView({ sessions, onOpen }) {
       ) : (
         <div className="txns-list">
           {list.map(t => (
-            <button key={t.id} className="txn-row" onClick={() => onOpen?.(t.id)}>
+            <button
+              key={t.id}
+              className="txn-row"
+              onClick={() => onOpen?.(t.id)}
+              style={t.pre_restart ? { opacity: 0.55 } : undefined}
+              title={t.pre_restart ? 'Receipt predates the last service restart — data resets on free hosting' : undefined}
+            >
               <span className={`txn-row-status ${t.status || ''}`}>
                 {TRXN_STATUS[t.status] || (t.status ? t.status.replace(/_/g, ' ') : '—')}
               </span>
-              <span className="txn-row-desc">{t.description || 'Grocery order'}</span>
+              <span className="txn-row-desc">
+                {t.description || 'Grocery order'}{t.pre_restart ? ' · pre-restart' : ''}
+              </span>
               <span className="txn-row-amt">₹{t.amount != null ? t.amount : '—'}</span>
               {t.updated_at && <span className="txn-row-time">{new Date(t.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
             </button>
