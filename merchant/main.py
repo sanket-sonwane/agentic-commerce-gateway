@@ -87,6 +87,10 @@ def health():
         "status": "ok",
         "protocol": settings.protocol_version,
         "payment_driver": settings.payment_driver,
+        # True only while the operator passphrase is the well-known demo
+        # default; the dashboard uses it to show (or hide) the demo hint on
+        # the operator sign-in card. A real operator token auto-hides it.
+        "demo_operator": settings.admin_token == "admin_demo_token",
     }
 
 

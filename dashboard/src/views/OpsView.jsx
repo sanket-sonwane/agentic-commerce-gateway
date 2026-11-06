@@ -53,6 +53,16 @@ export default function OpsView({ focusSessionId = null, onSessionObserved }) {
     merchantFetch('/audit_logs/verify').then(r => setIntegrity(r.body)).catch(() => {})
   }, [])
 
+  // Demo-mode hint: the backend reports whether the operator passphrase is
+  // still the well-known demo default. Only then does the sign-in card offer
+  // it — set a real operator token and this hint disappears automatically.
+  const [demoHint, setDemoHint] = useState(false)
+  useEffect(() => {
+    let alive = true
+    merchantFetch('/health').then(r => { if (alive) setDemoHint(r.body?.demo_operator === true) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
   async function onSubmitLogin(e) {
     e.preventDefault()
     setLoginBusy(true)
@@ -91,9 +101,11 @@ export default function OpsView({ focusSessionId = null, onSessionObserved }) {
     return (
       <div className="empty-state" style={{ maxWidth: 360, margin: '60px auto' }}>
         <div className="ops-section-title"><LockKeyhole size={13} style={{ verticalAlign: -1 }} /> Operator sign-in</div>
-        <p className="muted" style={{ marginBottom: 10 }}>
-          This console is privileged (stock control, demo reset). Sign in with the operator
-          passphrase to continue. It is verified server-side; your browser does not store it.
+        <p className="muted" style={{ margin: '0 0 10px' }}>
+          Privileged console — stock control and demo reset.
+        </p>
+        <p className="muted" style={{ margin: '0 0 12px', fontSize: 12 }}>
+          The passphrase is verified server-side; your browser never stores it.
         </p>
         <form onSubmit={onSubmitLogin} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <input
@@ -104,6 +116,22 @@ export default function OpsView({ focusSessionId = null, onSessionObserved }) {
             autoFocus
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)' }}
           />
+          {demoHint && (
+            <button
+              type="button"
+              onClick={() => setPassword(password === 'admin_demo_token' ? '' : 'admin_demo_token')}
+              title="Click to use the demo passphrase"
+              style={{
+                marginTop: 2, width: '100%', textAlign: 'left',
+                padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
+                background: 'transparent', border: '1px dashed var(--line)',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                fontSize: 11.5,
+              }}
+            >
+              👤 demo passphrase: <b>admin_demo_token</b> · click to fill
+            </button>
+          )}
           {loginError && <div className="pay-note" style={{ color: 'var(--red)' }}>⚠ {loginError}</div>}
           <button className="btn-pay" disabled={loginBusy || !password} style={{ width: '100%' }}>
             {loginBusy ? 'Signing in…' : 'Sign in'}
